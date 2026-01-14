@@ -16,12 +16,13 @@ builder.Services.AddSwaggerGen(options =>
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddIdentityServerAuthentication(JwtBearerDefaults.AuthenticationScheme, options =>
+    .AddJwtBearer(options =>
     {
         var identityConfig = builder.Configuration.GetSection("Identity").Get<IdentityConfig>()!;
-        
+
         options.Authority = identityConfig.Url;
         options.RequireHttpsMetadata = true;
+        options.TokenValidationParameters.ValidateAudience = false;
     });
 
 var app = builder.Build();
