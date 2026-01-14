@@ -202,7 +202,8 @@ Here's an example of aggregating multiple backend services:
         },
         "Metadata": {
           "Swagger:Enabled": "true",
-          "Swagger:Prefix": "/proxy-app1"
+          "Swagger:Prefix": "/proxy-app1",
+          "Swagger:IsMetadataSource": "true"
         }
       },
       "App2Cluster": {
@@ -211,13 +212,16 @@ Here's an example of aggregating multiple backend services:
         },
         "Metadata": {
           "Swagger:Enabled": "true",
-          "Swagger:Prefix": "/proxy-app2"
+          "Swagger:Prefix": "/proxy-app2",
+          "Swagger:IsMetadataSource": "true"
         }
       }
     }
   }
 }
 ```
+
+> **Note:** The `Swagger:IsMetadataSource` option controls whether the cluster's Swagger document info (title, version, description) is used in the aggregated Swagger UI. If not set, a default title "Aggregated API" will be displayed instead of the backend service's actual title.
 
 ## Authentication
 

@@ -202,7 +202,8 @@ app.Run();
         },
         "Metadata": {
           "Swagger:Enabled": "true",
-          "Swagger:Prefix": "/proxy-app1"
+          "Swagger:Prefix": "/proxy-app1",
+          "Swagger:IsMetadataSource": "true"
         }
       },
       "App2Cluster": {
@@ -211,13 +212,16 @@ app.Run();
         },
         "Metadata": {
           "Swagger:Enabled": "true",
-          "Swagger:Prefix": "/proxy-app2"
+          "Swagger:Prefix": "/proxy-app2",
+          "Swagger:IsMetadataSource": "true"
         }
       }
     }
   }
 }
 ```
+
+> **注意：** `Swagger:IsMetadataSource` 选项控制是否使用该 Cluster 的 Swagger 文档信息（标题、版本、描述）显示在聚合后的 Swagger UI 中。如果不设置此选项，将显示默认标题 "Aggregated API"，而不是后端服务的实际标题。
 
 ## 认证配置
 
