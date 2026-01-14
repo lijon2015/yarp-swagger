@@ -1,19 +1,16 @@
-﻿using Microsoft.OpenApi.Models;
-using System.Net;
-using Yarp.ReverseProxy.Swagger;
 using Yarp.ReverseProxy.Transforms;
 using Yarp.ReverseProxy.Transforms.Builder;
 
 namespace Yarp.Transformations;
 
-public class HeaderTransformFactory : ITransformFactory, ISwaggerTransformFactory
+/// <summary>
+/// YARP 请求转换工厂 - 重命名 Header
+/// </summary>
+public class HeaderTransformFactory : ITransformFactory
 {
     /// <summary>
-    /// Property validates for header titel rename
+    /// 验证转换配置
     /// </summary>
-    /// <param name="context"></param>
-    /// <param name="transformValues"></param>
-    /// <returns></returns>
     public bool Validate(TransformRouteValidationContext context, IReadOnlyDictionary<string, string> transformValues)
     {
         if (transformValues.TryGetValue("RenameHeader", out var header))
@@ -42,12 +39,8 @@ public class HeaderTransformFactory : ITransformFactory, ISwaggerTransformFactor
     }
 
     /// <summary>
-    /// Header title rename transformation
+    /// 构建 Header 重命名转换
     /// </summary>
-    /// <param name="context"></param>
-    /// <param name="transformValues"></param>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
     public bool Build(TransformBuilderContext context, IReadOnlyDictionary<string, string> transformValues)
     {
         if (transformValues.TryGetValue("RenameHeader", out var header))
@@ -82,37 +75,6 @@ public class HeaderTransformFactory : ITransformFactory, ISwaggerTransformFactor
 
                 return default;
             });
-
-            return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Header title rename transformation for Swagger
-    /// </summary>
-    /// <param name="operation"></param>
-    /// <param name="transformValues"></param>
-    /// <returns></returns>
-    public bool Build(OpenApiOperation operation, IReadOnlyDictionary<string, string> transformValues)
-    {
-        if (transformValues.ContainsKey("RenameHeader"))
-        {
-            foreach (var parameter in operation.Parameters)
-            {
-                if (parameter.In.HasValue && parameter.In.Value.ToString().Equals("Header"))
-                {
-                    if (transformValues.TryGetValue("RenameHeader", out var header)
-                        && transformValues.TryGetValue("Set", out var newHeader))
-                    {
-                        if (parameter.Name == newHeader)
-                        {
-                            parameter.Name = header;
-                        }
-                    }
-                }
-            }
 
             return true;
         }
