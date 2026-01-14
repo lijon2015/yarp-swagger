@@ -10,7 +10,9 @@
       "Bash(dir /S \"e:\\\\YUZHUPROJECT\\\\CBToolkit2.0\\\\YuzhuProject\\\\yarp-swagger\\\\src\\\\Yarp.ReverseProxy.Swagger\")",
       "Bash(find:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nrefactor: 重命名项目为 Yuzhu.Yarp.Swagger\n\n- 更改 PackageId 为 Yuzhu.Yarp.Swagger\n- 更新命名空间为 Yuzhu.Yarp.Swagger\n- 重命名解决方案和项目文件\n- 更新 GitHub Actions 工作流为 .NET 10.0\n- 版本重置为 1.0.0\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nrefactor: 重命名项目为 Yuzhu.Yarp.Swagger\n\n- 更改 PackageId 为 Yuzhu.Yarp.Swagger\n- 更新命名空间为 Yuzhu.Yarp.Swagger\n- 重命名解决方案和项目文件\n- 更新 GitHub Actions 工作流为 .NET 10.0\n- 版本重置为 1.0.0\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(gh run list:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

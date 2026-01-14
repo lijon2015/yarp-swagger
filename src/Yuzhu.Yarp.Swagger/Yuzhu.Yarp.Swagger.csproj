@@ -7,7 +7,7 @@
         <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
         <NoWarn>$(NoWarn);IDE0290;IDE0305;IDE0028;IDE0047;IDE0330;IDE0052;IDE1006</NoWarn>
         <PackageId>Yuzhu.Yarp.Swagger</PackageId>
-        <Version>1.0.0</Version>
+        <Version>1.0.1</Version>
         <Authors>Yuzhu</Authors>
         <Description>Swagger aggregation for YARP (Yet Another Reverse Proxy). Automatically discovers and aggregates Swagger documents from backend services using YARP metadata.</Description>
         <PackageProjectUrl>https://github.com/yuzhu/yarp-swagger</PackageProjectUrl>
