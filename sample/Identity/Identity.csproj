@@ -7,9 +7,9 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Duende.IdentityServer" Version="7.4.4" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.1" />
-        <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.0" />
+        <PackageReference Include="Duende.IdentityServer" Version="7.4.7" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.6" />
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
     </ItemGroup>
 
 </Project>

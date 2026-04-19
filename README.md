@@ -165,10 +165,10 @@ Configure via `SwaggerAggregation` section in `appsettings.json`:
 | Option | Description | Default | Range |
 |--------|-------------|---------|-------|
 | `RefreshInterval` | Background refresh interval | `00:05:00` | 10s - 24h |
-| `LoadTimeout` | Timeout for loading each Swagger document | `00:00:30` | 5s - 5min |
+| `LoadTimeout` | Per-attempt timeout for loading each Swagger document (enforced by the resilience pipeline). Total time-to-failure ≈ `LoadTimeout × (MaxRetryAttempts + 1) + 5s` | `00:00:30` | 5s - 5min |
 | `AggregationTimeout` | Overall aggregation process timeout | `00:02:00` | 30s - 10min |
 | `MaxParallelism` | Maximum parallel document loads | `10` | 1 - 50 |
-| `MaxRetryAttempts` | Maximum retry attempts for failed loads | `3` | 0 - 10 |
+| `MaxRetryAttempts` | Maximum retry attempts for failed loads (Polly exponential backoff with jitter, applied by the resilience pipeline) | `3` | 0 - 10 |
 | `DefaultSwaggerPath` | Default Swagger path when metadata unspecified | `/swagger/v1/swagger.json` | max 200 chars |
 | `StartupDelay` | Initial delay before first refresh | `00:00:05` | - |
 | `MaxDocumentSizeBytes` | Maximum document size to prevent OOM | `10485760` (10MB) | 1KB - 100MB |

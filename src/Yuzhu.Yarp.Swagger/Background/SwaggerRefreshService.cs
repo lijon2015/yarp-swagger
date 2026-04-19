@@ -20,7 +20,7 @@ public sealed class SwaggerRefreshService : BackgroundService
     private readonly ILogger<SwaggerRefreshService> _logger;
 
     private CancellationTokenSource? _configChangeCts;
-    private readonly object _ctsLock = new();
+    private readonly Lock _ctsLock = new();
 
     public SwaggerRefreshService(
         ISwaggerAggregator aggregator,

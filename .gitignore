@@ -403,3 +403,6 @@ FodyWeavers.xsd
 
 # Claude Code
 .claude/
+
+# Duende IdentityServer runtime-generated signing keys (contain private keys)
+sample/Identity/keys/

@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http.Resilience;
+using Microsoft.Extensions.Options;
 using Polly;
 using Yuzhu.Yarp.Swagger.Configuration;
 
@@ -12,16 +13,18 @@ namespace Yuzhu.Yarp.Swagger.Resilience;
 public static class SwaggerHttpClientExtensions
 {
     /// <summary>
-    /// 添加 Swagger 弹性处理管道
+    /// 添加 Swagger 弹性处理管道（重试 + 每次尝试超时 + 熔断）。
+    /// 配置在请求时按当前 <see cref="SwaggerAggregationOptions"/> 解析。
     /// </summary>
-    public static void AddSwaggerResilienceHandler(
-        this IHttpClientBuilder builder,
-        SwaggerAggregationOptions options)
+    public static IHttpClientBuilder AddSwaggerResilienceHandler(this IHttpClientBuilder builder)
     {
-        builder.AddResilienceHandler("swagger-pipeline", configure =>
+        builder.AddResilienceHandler("swagger-pipeline", static (configure, context) =>
         {
+            var options = context.ServiceProvider
+                .GetRequiredService<IOptionsMonitor<SwaggerAggregationOptions>>()
+                .CurrentValue;
+
             configure
-                // 重试策略
                 .AddRetry(new HttpRetryStrategyOptions
                 {
                     MaxRetryAttempts = options.MaxRetryAttempts,
@@ -29,13 +32,10 @@ public static class SwaggerHttpClientExtensions
                     BackoffType = DelayBackoffType.Exponential,
                     UseJitter = true,
                     ShouldHandle = static args => ValueTask.FromResult(
-                        args.Outcome.Exception is HttpRequestException ||
-                        args.Outcome.Exception is TimeoutException ||
+                        args.Outcome.Exception is HttpRequestException or TimeoutException ||
                         args.Outcome.Result?.StatusCode >= HttpStatusCode.InternalServerError)
                 })
-                // 超时策略
                 .AddTimeout(options.LoadTimeout)
-                // 熔断策略
                 .AddCircuitBreaker(new HttpCircuitBreakerStrategyOptions
                 {
                     FailureRatio = 0.5,
@@ -43,9 +43,10 @@ public static class SwaggerHttpClientExtensions
                     SamplingDuration = TimeSpan.FromSeconds(30),
                     BreakDuration = TimeSpan.FromSeconds(30),
                     ShouldHandle = static args => ValueTask.FromResult(
-                        args.Outcome.Exception is HttpRequestException ||
-                        args.Outcome.Exception is TimeoutException)
+                        args.Outcome.Exception is HttpRequestException or TimeoutException)
                 });
         });
+
+        return builder;
     }
 }
