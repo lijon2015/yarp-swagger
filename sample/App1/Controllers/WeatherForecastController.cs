@@ -9,7 +9,7 @@ namespace App1.Controllers;
 [Authorize]
 public class WeatherForecastController : ControllerBase
 {
-    private static readonly string[] _summaries =
+    private static readonly string[] Summaries =
     [
         "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
     ];
@@ -23,7 +23,7 @@ public class WeatherForecastController : ControllerBase
             {
                 Date = DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
                 TemperatureC = Random.Shared.Next(-20, 55),
-                Summary = _summaries[Random.Shared.Next(_summaries.Length)]
+                Summary = Summaries[Random.Shared.Next(Summaries.Length)]
             })
         ];
     }
@@ -37,7 +37,7 @@ public class WeatherForecastController : ControllerBase
             {
                 Date = DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
                 TemperatureC = Random.Shared.Next(-20, 55),
-                Summary = _summaries[Random.Shared.Next(_summaries.Length)]
+                Summary = Summaries[Random.Shared.Next(Summaries.Length)]
             })
         ];
     }

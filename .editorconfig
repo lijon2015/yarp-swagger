@@ -19,6 +19,10 @@ dotnet_diagnostic.IDE0058.severity = silent # Expression value is never used
 dotnet_diagnostic.IDE0072.severity = silent # missing cases to "=>" switch expression
 dotnet_diagnostic.IDE0090.severity = silent # Use implicit new
 dotnet_diagnostic.IDE0270.severity = silent # Simplify null check
+dotnet_diagnostic.IDE0290.severity = silent # Use primary constructor (stylistic preference)
+dotnet_diagnostic.IDE0028.severity = silent # Use collection expression for empty (stylistic)
+dotnet_diagnostic.IDE0305.severity = silent # Use collection expression for fluent (stylistic)
+dotnet_diagnostic.IDE0052.severity = silent # Remove unread private member (often false positives with reflection)
 # https://github.com/dotnet/aspnetcore/issues/47912
 dotnet_diagnostic.IDE0005.severity = none # Remove unnecessary using directives (using CS8019 instead)
 dotnet_diagnostic.CS8019.severity = error # Remove unnecessary using directives
@@ -177,13 +181,25 @@ dotnet_naming_rule.types_should_be_pascal_case.severity = error
 dotnet_naming_rule.types_should_be_pascal_case.symbols = types
 dotnet_naming_rule.types_should_be_pascal_case.style = pascal_case
 
-dotnet_naming_rule.constant_should_be_capitalized_snake_case.severity = error
-dotnet_naming_rule.constant_should_be_capitalized_snake_case.symbols = constant
-dotnet_naming_rule.constant_should_be_capitalized_snake_case.style = capitalized_snake_case
+# 常量遵循 .NET 标准约定：PascalCase（与 BCL 保持一致，例如 Math.PI / Int32.MaxValue 风格）
+dotnet_naming_rule.constant_should_be_pascal_case.severity = error
+dotnet_naming_rule.constant_should_be_pascal_case.symbols = constant
+dotnet_naming_rule.constant_should_be_pascal_case.style = pascal_case
 
-dotnet_naming_rule.readonly_should_be_begins_with__.severity = error
-dotnet_naming_rule.readonly_should_be_begins_with__.symbols = readonly
-dotnet_naming_rule.readonly_should_be_begins_with__.style = begins_with__
+# public/protected 静态只读字段：PascalCase（公共 API 一律 Pascal）
+dotnet_naming_rule.public_static_readonly_should_be_pascal_case.severity = error
+dotnet_naming_rule.public_static_readonly_should_be_pascal_case.symbols = public_static_readonly
+dotnet_naming_rule.public_static_readonly_should_be_pascal_case.style = pascal_case
+
+# private/internal 静态只读字段：PascalCase（静态字段视同共享常量约定）
+dotnet_naming_rule.private_static_readonly_should_be_pascal_case.severity = error
+dotnet_naming_rule.private_static_readonly_should_be_pascal_case.symbols = private_static_readonly
+dotnet_naming_rule.private_static_readonly_should_be_pascal_case.style = pascal_case
+
+# private 实例只读字段：_camelCase（区别局部变量与字段）
+dotnet_naming_rule.private_instance_readonly_should_be_underscore_camel.severity = error
+dotnet_naming_rule.private_instance_readonly_should_be_underscore_camel.symbols = private_instance_readonly
+dotnet_naming_rule.private_instance_readonly_should_be_underscore_camel.style = begins_with__
 
 dotnet_naming_rule.non_field_members_should_be_pascal_case.severity = error
 dotnet_naming_rule.non_field_members_should_be_pascal_case.symbols = non_field_members
@@ -191,7 +207,7 @@ dotnet_naming_rule.non_field_members_should_be_pascal_case.style = pascal_case
 
 dotnet_naming_rule.private_or_internal_field_should_be_camel_case.severity = error
 dotnet_naming_rule.private_or_internal_field_should_be_camel_case.symbols = private_or_internal_field
-dotnet_naming_rule.private_or_internal_field_should_be_camel_case.style = camel_case
+dotnet_naming_rule.private_or_internal_field_should_be_camel_case.style = begins_with__
 
 # Symbol specifications
 
@@ -212,12 +228,20 @@ dotnet_naming_symbols.non_field_members.applicable_accessibilities = public, int
 dotnet_naming_symbols.non_field_members.required_modifiers =
 
 dotnet_naming_symbols.constant.applicable_kinds = field
-dotnet_naming_symbols.constant.applicable_accessibilities = public, internal, private
+dotnet_naming_symbols.constant.applicable_accessibilities = public, internal, private, protected, protected_internal, private_protected
 dotnet_naming_symbols.constant.required_modifiers = const
 
-dotnet_naming_symbols.readonly.applicable_kinds = field
-dotnet_naming_symbols.readonly.applicable_accessibilities = public, private
-dotnet_naming_symbols.readonly.required_modifiers = readonly
+dotnet_naming_symbols.public_static_readonly.applicable_kinds = field
+dotnet_naming_symbols.public_static_readonly.applicable_accessibilities = public, protected, protected_internal
+dotnet_naming_symbols.public_static_readonly.required_modifiers = readonly,static
+
+dotnet_naming_symbols.private_static_readonly.applicable_kinds = field
+dotnet_naming_symbols.private_static_readonly.applicable_accessibilities = internal, private, private_protected
+dotnet_naming_symbols.private_static_readonly.required_modifiers = readonly,static
+
+dotnet_naming_symbols.private_instance_readonly.applicable_kinds = field
+dotnet_naming_symbols.private_instance_readonly.applicable_accessibilities = internal, private, private_protected
+dotnet_naming_symbols.private_instance_readonly.required_modifiers = readonly
 
 # Naming styles
 

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Microsoft.OpenApi.Reader;
+using Polly.Timeout;
 using Yuzhu.Yarp.Swagger.Abstractions;
 using Yuzhu.Yarp.Swagger.Configuration;
 using Yuzhu.Yarp.Swagger.Telemetry;
@@ -45,11 +46,17 @@ public sealed class HttpSwaggerDocumentLoader : ISwaggerDocumentLoader
         activity?.SetTag("cluster.id", endpoint.ClusterId);
         activity?.SetTag("swagger.url", endpoint.SwaggerUrl.ToString());
 
+        var options = _options.CurrentValue;
+
+        // 整体预算 = 单次 LoadTimeout × (重试次数 + 1) + 缓冲，确保弹性管道的重试有时间窗口完成。
+        // 弹性管道负责每次尝试的超时和重试；本 CTS 是兜底，避免极端情况下无界等待。
+        var overallBudget = TimeSpan.FromMilliseconds(
+            options.LoadTimeout.TotalMilliseconds * (options.MaxRetryAttempts + 1) + 5000);
+
         try
         {
-            var timeout = _options.CurrentValue.LoadTimeout;
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(timeout);
+            cts.CancelAfter(overallBudget);
 
             // 创建请求
             using var request = new HttpRequestMessage(HttpMethod.Get, endpoint.SwaggerUrl);
@@ -84,11 +91,34 @@ public sealed class HttpSwaggerDocumentLoader : ISwaggerDocumentLoader
             using var response = await httpClient.SendAsync(request, cts.Token);
             response.EnsureSuccessStatusCode();
 
+            var maxSize = options.MaxDocumentSizeBytes;
+            var declaredLength = response.Content.Headers.ContentLength;
+
+            // 优先读取 Content-Length 头进行预校验，避免下载超大文档浪费带宽和内存。
+            if (declaredLength.HasValue && declaredLength.Value > maxSize)
+            {
+                _logger.LogWarning(
+                    "Declared Content-Length exceeds limit for {ClusterId}: {Size} > {MaxSize} bytes",
+                    endpoint.ClusterId, declaredLength.Value, maxSize);
+
+                SwaggerTelemetry.LoadFailureCounter.Add(1,
+                    new KeyValuePair<string, object?>("cluster.id", endpoint.ClusterId),
+                    new KeyValuePair<string, object?>("error.type", "size_exceeded"));
+
+                sw.Stop();
+                return new SwaggerLoadResult
+                {
+                    Endpoint = endpoint,
+                    ErrorMessage = $"Content-Length {declaredLength.Value} exceeds maximum size of {maxSize} bytes",
+                    LoadDuration = sw.Elapsed
+                };
+            }
+
             await using var stream = await response.Content.ReadAsStreamAsync(cts.Token);
 
             // 使用内存流以支持同步读取（带大小限制）
-            var maxSize = _options.CurrentValue.MaxDocumentSizeBytes;
-            using var memoryStream = new MemoryStream();
+            using var memoryStream = new MemoryStream(
+                capacity: declaredLength is > 0 and <= int.MaxValue ? (int)declaredLength.Value : 8192);
 
             var buffer = new byte[8192];
             long totalBytesRead = 0;
@@ -179,7 +209,9 @@ public sealed class HttpSwaggerDocumentLoader : ISwaggerDocumentLoader
                 LoadDuration = sw.Elapsed
             };
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (
+            ex is OperationCanceledException && !cancellationToken.IsCancellationRequested ||
+            ex is TimeoutRejectedException)
         {
             sw.Stop();
             _logger.LogWarning(

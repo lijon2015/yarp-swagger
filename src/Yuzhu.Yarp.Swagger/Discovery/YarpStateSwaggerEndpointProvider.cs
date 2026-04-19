@@ -43,7 +43,7 @@ public sealed class YarpStateSwaggerEndpointProvider : ISwaggerEndpointProvider
             }
 
             // 优先获取健康的目标地址，如果没有则获取任意配置的目标地址
-            string? baseAddress = null;
+            string? baseAddress;
 
             // 首先尝试获取可用的目标
             var availableDestination = cluster.DestinationsState?.AvailableDestinations

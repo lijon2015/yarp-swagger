@@ -8,6 +8,7 @@ using Yuzhu.Yarp.Swagger.Configuration;
 using Yuzhu.Yarp.Swagger.Discovery;
 using Yuzhu.Yarp.Swagger.Loading;
 using Yuzhu.Yarp.Swagger.Merging;
+using Yuzhu.Yarp.Swagger.Resilience;
 using Yuzhu.Yarp.Swagger.Storage;
 using Yuzhu.Yarp.Swagger.Telemetry;
 using Yuzhu.Yarp.Swagger.Transforming;
@@ -35,18 +36,21 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
 
         // 添加具名 HttpClient（用于 Swagger 文档加载）
+        // 超时由弹性管道（每次尝试）和加载器外层 CTS（整体预算）协同管理，
+        // 因此关闭 HttpClient 自身的 100s 默认超时，避免多层冲突。
         services.AddHttpClient(SwaggerConstants.HttpClientName, client =>
         {
-            client.Timeout = TimeSpan.FromSeconds(30);
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Accept.Add(
                 new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
         })
-        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        .ConfigurePrimaryHttpMessageHandler(static () => new SocketsHttpHandler
         {
             PooledConnectionLifetime = TimeSpan.FromMinutes(5),
             PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
             MaxConnectionsPerServer = 10
-        });
+        })
+        .AddSwaggerResilienceHandler();
 
         // 核心服务
         // 使用 ConfigBasedSwaggerEndpointProvider 替代 YarpStateSwaggerEndpointProvider

@@ -165,10 +165,10 @@ app.Run();
 | 选项 | 说明 | 默认值 | 范围 |
 |------|------|--------|------|
 | `RefreshInterval` | 后台刷新间隔 | `00:05:00` | 10秒 - 24小时 |
-| `LoadTimeout` | 加载单个 Swagger 文档的超时时间 | `00:00:30` | 5秒 - 5分钟 |
+| `LoadTimeout` | 加载单个 Swagger 文档的**每次尝试**超时（由弹性管道执行）。整体失败耗时上限 ≈ `LoadTimeout × (MaxRetryAttempts + 1) + 5s` | `00:00:30` | 5秒 - 5分钟 |
 | `AggregationTimeout` | 整体聚合过程超时时间 | `00:02:00` | 30秒 - 10分钟 |
 | `MaxParallelism` | 最大并行加载数 | `10` | 1 - 50 |
-| `MaxRetryAttempts` | 失败重试次数 | `3` | 0 - 10 |
+| `MaxRetryAttempts` | 失败重试次数（弹性管道使用 Polly 指数退避 + 抖动） | `3` | 0 - 10 |
 | `DefaultSwaggerPath` | 默认 Swagger 路径 | `/swagger/v1/swagger.json` | 最大 200 字符 |
 | `StartupDelay` | 首次刷新前的延迟 | `00:00:05` | - |
 | `MaxDocumentSizeBytes` | 最大文档大小 | `10485760` (10MB) | 1KB - 100MB |
