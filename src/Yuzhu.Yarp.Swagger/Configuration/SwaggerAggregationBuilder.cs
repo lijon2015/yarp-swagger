@@ -33,8 +33,8 @@ public sealed class SwaggerAggregationBuilder
     public SwaggerAggregationBuilder UseEndpointProvider<TProvider>()
         where TProvider : class, ISwaggerEndpointProvider
     {
-        _services.RemoveAll<ISwaggerEndpointProvider>();
-        _services.AddSingleton<ISwaggerEndpointProvider, TProvider>();
+        _ = _services.RemoveAll<ISwaggerEndpointProvider>();
+        _ = _services.AddSingleton<ISwaggerEndpointProvider, TProvider>();
         return this;
     }
 
@@ -44,8 +44,8 @@ public sealed class SwaggerAggregationBuilder
     public SwaggerAggregationBuilder UseDocumentStore<TStore>()
         where TStore : class, IAggregatedDocumentStore
     {
-        _services.RemoveAll<IAggregatedDocumentStore>();
-        _services.AddSingleton<IAggregatedDocumentStore, TStore>();
+        _ = _services.RemoveAll<IAggregatedDocumentStore>();
+        _ = _services.AddSingleton<IAggregatedDocumentStore, TStore>();
         return this;
     }
 
@@ -55,8 +55,8 @@ public sealed class SwaggerAggregationBuilder
     public SwaggerAggregationBuilder UseDocumentLoader<TLoader>()
         where TLoader : class, ISwaggerDocumentLoader
     {
-        _services.RemoveAll<ISwaggerDocumentLoader>();
-        _services.AddSingleton<ISwaggerDocumentLoader, TLoader>();
+        _ = _services.RemoveAll<ISwaggerDocumentLoader>();
+        _ = _services.AddSingleton<ISwaggerDocumentLoader, TLoader>();
         return this;
     }
 
@@ -66,8 +66,8 @@ public sealed class SwaggerAggregationBuilder
     public SwaggerAggregationBuilder UseDocumentMerger<TMerger>()
         where TMerger : class, ISwaggerDocumentMerger
     {
-        _services.RemoveAll<ISwaggerDocumentMerger>();
-        _services.AddSingleton<ISwaggerDocumentMerger, TMerger>();
+        _ = _services.RemoveAll<ISwaggerDocumentMerger>();
+        _ = _services.AddSingleton<ISwaggerDocumentMerger, TMerger>();
         return this;
     }
 
@@ -78,15 +78,15 @@ public sealed class SwaggerAggregationBuilder
     {
         ArgumentNullException.ThrowIfNull(configure);
 
-        _services.PostConfigure(configure);
+        _ = _services.PostConfigure(configure);
         return this;
     }
 
     internal void Build()
     {
-        foreach (var type in _transformerTypes)
+        foreach (Type type in _transformerTypes)
         {
-            _services.AddSingleton(typeof(ISwaggerDocumentTransformer), type);
+            _ = _services.AddSingleton(typeof(ISwaggerDocumentTransformer), type);
         }
     }
 }

@@ -17,7 +17,7 @@ public sealed class HybridSwaggerEndpointProvider : ISwaggerEndpointProvider
         ConfigBasedSwaggerEndpointProvider configProvider,
         ILogger<HybridSwaggerEndpointProvider> logger)
         : this(
-            (ISwaggerEndpointProvider)yarpStateProvider,
+            yarpStateProvider,
             (ISwaggerEndpointProvider)configProvider,
             logger)
     {
@@ -35,16 +35,16 @@ public sealed class HybridSwaggerEndpointProvider : ISwaggerEndpointProvider
 
     public IReadOnlyList<SwaggerEndpoint> GetEndpoints()
     {
-        var stateEndpoints = _yarpStateProvider.GetEndpoints();
-        var configEndpoints = _configProvider.GetEndpoints();
+        IReadOnlyList<SwaggerEndpoint> stateEndpoints = _yarpStateProvider.GetEndpoints();
+        IReadOnlyList<SwaggerEndpoint> configEndpoints = _configProvider.GetEndpoints();
 
         return MergeEndpoints(stateEndpoints, configEndpoints);
     }
 
     public IReadOnlyList<SwaggerEndpoint> GetEndpoints(string documentName)
     {
-        var stateEndpoints = _yarpStateProvider.GetEndpoints(documentName);
-        var configEndpoints = _configProvider.GetEndpoints(documentName);
+        IReadOnlyList<SwaggerEndpoint> stateEndpoints = _yarpStateProvider.GetEndpoints(documentName);
+        IReadOnlyList<SwaggerEndpoint> configEndpoints = _configProvider.GetEndpoints(documentName);
 
         return MergeEndpoints(stateEndpoints, configEndpoints, documentName);
     }
@@ -91,16 +91,16 @@ public sealed class HybridSwaggerEndpointProvider : ISwaggerEndpointProvider
             return preferredEndpoints;
         }
 
-        var mergedEndpoints = new List<SwaggerEndpoint>(preferredEndpoints.Count + fallbackEndpoints.Count);
-        var knownEndpointIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        List<SwaggerEndpoint> mergedEndpoints = new List<SwaggerEndpoint>(preferredEndpoints.Count + fallbackEndpoints.Count);
+        HashSet<string> knownEndpointIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var endpoint in preferredEndpoints)
+        foreach (SwaggerEndpoint endpoint in preferredEndpoints)
         {
             mergedEndpoints.Add(endpoint);
-            knownEndpointIds.Add(SwaggerEndpointDiscoveryHelper.GetEndpointIdentity(endpoint));
+            _ = knownEndpointIds.Add(SwaggerEndpointDiscoveryHelper.GetEndpointIdentity(endpoint));
         }
 
-        foreach (var endpoint in fallbackEndpoints)
+        foreach (SwaggerEndpoint endpoint in fallbackEndpoints)
         {
             if (knownEndpointIds.Add(SwaggerEndpointDiscoveryHelper.GetEndpointIdentity(endpoint)))
             {

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-04-21
+
+### Changed
+
+- Code-style cleanup across `src/`, `tests/`, and `sample/` to satisfy the
+  repository's `.editorconfig` IDE rules: explicit types in place of `var`,
+  expression-bodied members for single-line methods, primary constructors,
+  collection expressions (`[...]`), and discard (`_ = ...`) for unused
+  expression values. No runtime or public API changes.
+
+### Fixed
+
+- `SwaggerDocumentCoordinatorTests.GetDocumentNames_WhenCacheHasEntries_ReturnsCachedNames`
+  is now `async Task` and awaits the store writes directly, replacing
+  `.AsTask().GetAwaiter().GetResult()` (xUnit1031).
+
 ## [2.0.0] - 2026-04-21
 
 ### Breaking

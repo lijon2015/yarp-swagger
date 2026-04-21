@@ -7,35 +7,30 @@ namespace Yuzhu.Yarp.Swagger.Merging;
 /// <summary>
 /// Default swagger document merger.
 /// </summary>
-public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
+public sealed class DefaultSwaggerDocumentMerger(ILogger<DefaultSwaggerDocumentMerger> logger) : ISwaggerDocumentMerger
 {
-    private readonly ILogger<DefaultSwaggerDocumentMerger> _logger;
-
-    public DefaultSwaggerDocumentMerger(ILogger<DefaultSwaggerDocumentMerger> logger)
-    {
-        _logger = logger;
-    }
+    private readonly ILogger<DefaultSwaggerDocumentMerger> _logger = logger;
 
     public OpenApiDocument Merge(
         IEnumerable<SwaggerLoadResult> sources,
         MergeOptions options)
     {
-        var resultDocument = new OpenApiDocument
+        OpenApiDocument resultDocument = new OpenApiDocument
         {
             Info = new OpenApiInfo
             {
                 Title = "Aggregated API",
                 Version = "1.0.0"
             },
-            Paths = new OpenApiPaths(),
+            Paths = [],
             Components = new OpenApiComponents()
         };
 
-        var failedServices = new List<string>();
-        var securityRequirements = new List<OpenApiSecurityRequirement>();
-        var tagsByName = new Dictionary<string, OpenApiTag>(StringComparer.Ordinal);
+        List<string> failedServices = [];
+        List<OpenApiSecurityRequirement> securityRequirements = [];
+        Dictionary<string, OpenApiTag> tagsByName = new Dictionary<string, OpenApiTag>(StringComparer.Ordinal);
 
-        foreach (var source in sources)
+        foreach (SwaggerLoadResult source in sources)
         {
             if (!source.IsSuccess)
             {
@@ -43,8 +38,8 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
                 continue;
             }
 
-            var document = source.Document!;
-            var endpoint = source.Endpoint;
+            OpenApiDocument document = source.Document!;
+            SwaggerEndpoint endpoint = source.Endpoint;
 
             if (endpoint.IsMetadataSource)
             {
@@ -61,7 +56,7 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
 
             if (document.Tags != null)
             {
-                foreach (var tag in document.Tags)
+                foreach (OpenApiTag tag in document.Tags)
                 {
                     if (string.IsNullOrWhiteSpace(tag.Name))
                     {
@@ -110,7 +105,7 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             return;
         }
 
-        foreach (var path in sourcePaths)
+        foreach (KeyValuePair<string, IOpenApiPathItem> path in sourcePaths)
         {
             if (!targetPaths.TryAdd(path.Key, (OpenApiPathItem)path.Value))
             {
@@ -199,7 +194,7 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
         if (sourceComponents.Extensions != null)
         {
             targetComponents.Extensions ??= new Dictionary<string, IOpenApiExtension>();
-            foreach (var ext in sourceComponents.Extensions)
+            foreach (KeyValuePair<string, IOpenApiExtension> ext in sourceComponents.Extensions)
             {
                 targetComponents.Extensions[ext.Key] = ext.Value;
             }
@@ -218,7 +213,7 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             return;
         }
 
-        foreach (var item in source)
+        foreach (KeyValuePair<string, T> item in source)
         {
             if (!target.TryAdd(item.Key, item.Value))
             {

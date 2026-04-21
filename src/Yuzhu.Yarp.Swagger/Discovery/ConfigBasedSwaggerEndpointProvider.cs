@@ -9,28 +9,21 @@ namespace Yuzhu.Yarp.Swagger.Discovery;
 /// <summary>
 /// Reads Swagger endpoints directly from configuration.
 /// </summary>
-public sealed class ConfigBasedSwaggerEndpointProvider : ISwaggerEndpointProvider
+public sealed class ConfigBasedSwaggerEndpointProvider(
+    IConfiguration configuration,
+    IOptionsMonitor<SwaggerAggregationOptions> options,
+    ILogger<ConfigBasedSwaggerEndpointProvider> logger) : ISwaggerEndpointProvider
 {
-    private readonly IConfiguration _configuration;
-    private readonly IOptionsMonitor<SwaggerAggregationOptions> _options;
-    private readonly ILogger<ConfigBasedSwaggerEndpointProvider> _logger;
-
-    public ConfigBasedSwaggerEndpointProvider(
-        IConfiguration configuration,
-        IOptionsMonitor<SwaggerAggregationOptions> options,
-        ILogger<ConfigBasedSwaggerEndpointProvider> logger)
-    {
-        _configuration = configuration;
-        _options = options;
-        _logger = logger;
-    }
+    private readonly IConfiguration _configuration = configuration;
+    private readonly IOptionsMonitor<SwaggerAggregationOptions> _options = options;
+    private readonly ILogger<ConfigBasedSwaggerEndpointProvider> _logger = logger;
 
     public IReadOnlyList<SwaggerEndpoint> GetEndpoints()
     {
-        var endpoints = new List<SwaggerEndpoint>();
-        var defaultSwaggerPath = _options.CurrentValue.DefaultSwaggerPath;
+        List<SwaggerEndpoint> endpoints = [];
+        string defaultSwaggerPath = _options.CurrentValue.DefaultSwaggerPath;
 
-        var clustersSection = _configuration.GetSection("ReverseProxy:Clusters");
+        IConfigurationSection clustersSection = _configuration.GetSection("ReverseProxy:Clusters");
         if (!clustersSection.Exists())
         {
             clustersSection = _configuration.GetSection("Yarp:Clusters");
@@ -42,19 +35,22 @@ public sealed class ConfigBasedSwaggerEndpointProvider : ISwaggerEndpointProvide
             return endpoints;
         }
 
-        foreach (var clusterSection in clustersSection.GetChildren())
+        foreach (IConfigurationSection clusterSection in clustersSection.GetChildren())
         {
-            var clusterId = clusterSection.Key;
-            var metadataSection = clusterSection.GetSection("Metadata");
+            string clusterId = clusterSection.Key;
+            IConfigurationSection metadataSection = clusterSection.GetSection("Metadata");
 
-            string? GetMetadataValue(string key) => metadataSection[key];
+            string? GetMetadataValue(string key)
+            {
+                return metadataSection[key];
+            }
 
             if (!SwaggerEndpointDiscoveryHelper.IsSwaggerEnabled(GetMetadataValue))
             {
                 continue;
             }
 
-            var baseAddress = GetBaseAddress(clusterSection);
+            string? baseAddress = GetBaseAddress(clusterSection);
             if (string.IsNullOrEmpty(baseAddress))
             {
                 _logger.LogWarning(
@@ -63,7 +59,7 @@ public sealed class ConfigBasedSwaggerEndpointProvider : ISwaggerEndpointProvide
                 continue;
             }
 
-            var endpoint = SwaggerEndpointDiscoveryHelper.CreateEndpoint(
+            SwaggerEndpoint? endpoint = SwaggerEndpointDiscoveryHelper.CreateEndpoint(
                 clusterId,
                 baseAddress,
                 GetMetadataValue,
@@ -79,22 +75,17 @@ public sealed class ConfigBasedSwaggerEndpointProvider : ISwaggerEndpointProvide
         return endpoints;
     }
 
-    public IReadOnlyList<SwaggerEndpoint> GetEndpoints(string documentName)
-    {
-        return GetEndpoints()
-            .Where(ep => SwaggerEndpointDiscoveryHelper.MatchesDocumentName(ep, documentName))
-            .ToList();
-    }
+    public IReadOnlyList<SwaggerEndpoint> GetEndpoints(string documentName) => [.. GetEndpoints().Where(ep => SwaggerEndpointDiscoveryHelper.MatchesDocumentName(ep, documentName))];
 
     private static string? GetBaseAddress(IConfigurationSection clusterSection)
     {
-        var destinationsSection = clusterSection.GetSection("Destinations");
+        IConfigurationSection destinationsSection = clusterSection.GetSection("Destinations");
         if (!destinationsSection.Exists())
         {
             return null;
         }
 
-        var firstDestination = destinationsSection.GetChildren().FirstOrDefault();
+        IConfigurationSection? firstDestination = destinationsSection.GetChildren().FirstOrDefault();
         return firstDestination?["Address"];
     }
 }

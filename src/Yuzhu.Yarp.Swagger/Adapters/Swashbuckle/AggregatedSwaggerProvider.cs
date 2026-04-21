@@ -9,44 +9,30 @@ namespace Yuzhu.Yarp.Swagger.Adapters.Swashbuckle;
 /// <summary>
 /// Serves aggregated Swagger documents through Swashbuckle.
 /// </summary>
-public sealed class AggregatedSwaggerProvider : IAsyncSwaggerProvider, ISwaggerProvider
+public sealed class AggregatedSwaggerProvider(
+    SwaggerDocumentCoordinator documentCoordinator,
+    ILogger<AggregatedSwaggerProvider> logger) : IAsyncSwaggerProvider, ISwaggerProvider
 {
-    private readonly SwaggerDocumentCoordinator _documentCoordinator;
-    private readonly ILogger<AggregatedSwaggerProvider> _logger;
-
-    public AggregatedSwaggerProvider(
-        SwaggerDocumentCoordinator documentCoordinator,
-        ILogger<AggregatedSwaggerProvider> logger)
-    {
-        _documentCoordinator = documentCoordinator;
-        _logger = logger;
-    }
+    private readonly SwaggerDocumentCoordinator _documentCoordinator = documentCoordinator;
+    private readonly ILogger<AggregatedSwaggerProvider> _logger = logger;
 
     public Task<OpenApiDocument> GetSwaggerAsync(
         string documentName,
         string? host = null,
-        string? basePath = null)
-    {
-        return GetSwaggerCoreAsync(documentName);
-    }
+        string? basePath = null) => GetSwaggerCoreAsync(documentName);
 
     public OpenApiDocument GetSwagger(
         string documentName,
         string? host = null,
-        string? basePath = null)
-    {
+        string? basePath = null) =>
         // Swashbuckle's middleware still requires ISwaggerProvider in DI.
-        return GetSwaggerCoreAsync(documentName).GetAwaiter().GetResult();
-    }
+        GetSwaggerCoreAsync(documentName).GetAwaiter().GetResult();
 
-    public IReadOnlyList<string> GetDocumentNames()
-    {
-        return _documentCoordinator.GetDocumentNames();
-    }
+    public IReadOnlyList<string> GetDocumentNames() => _documentCoordinator.GetDocumentNames();
 
     private async Task<OpenApiDocument> GetSwaggerCoreAsync(string documentName)
     {
-        var resolution = await _documentCoordinator.ResolveDocumentAsync(documentName);
+        SwaggerDocumentResolution resolution = await _documentCoordinator.ResolveDocumentAsync(documentName);
 
         if (resolution.Document != null)
         {
@@ -68,7 +54,7 @@ public sealed class AggregatedSwaggerProvider : IAsyncSwaggerProvider, ISwaggerP
             throw new SwaggerDocumentUnavailableException(documentName);
         }
 
-        var knownDocuments = _documentCoordinator.GetDocumentNames();
+        IReadOnlyList<string> knownDocuments = _documentCoordinator.GetDocumentNames();
 
         _logger.LogWarning(
             "Document '{DocumentName}' not found. Known documents: {KnownDocuments}",

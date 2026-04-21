@@ -9,17 +9,17 @@ public sealed class HybridSwaggerEndpointProviderTests
     [Fact]
     public void GetEndpoints_MergesConfigEndpointsMissingFromLiveState()
     {
-        var sharedStateEndpoint = CreateEndpoint("orders-cluster", "orders", "https://live-orders.test");
-        var stateOnlyEndpoint = CreateEndpoint("inventory-cluster", "inventory", "https://live-inventory.test");
-        var sharedConfigEndpoint = CreateEndpoint("orders-cluster", "orders", "https://config-orders.test");
-        var configOnlyEndpoint = CreateEndpoint("billing-cluster", "billing", "https://config-billing.test");
+        SwaggerEndpoint sharedStateEndpoint = CreateEndpoint("orders-cluster", "orders", "https://live-orders.test");
+        SwaggerEndpoint stateOnlyEndpoint = CreateEndpoint("inventory-cluster", "inventory", "https://live-inventory.test");
+        SwaggerEndpoint sharedConfigEndpoint = CreateEndpoint("orders-cluster", "orders", "https://config-orders.test");
+        SwaggerEndpoint configOnlyEndpoint = CreateEndpoint("billing-cluster", "billing", "https://config-billing.test");
 
-        var provider = new HybridSwaggerEndpointProvider(
+        HybridSwaggerEndpointProvider provider = new HybridSwaggerEndpointProvider(
             new StubSwaggerEndpointProvider([sharedStateEndpoint, stateOnlyEndpoint]),
             new StubSwaggerEndpointProvider([sharedConfigEndpoint, configOnlyEndpoint]),
             NullLogger<HybridSwaggerEndpointProvider>.Instance);
 
-        var endpoints = provider.GetEndpoints();
+        IReadOnlyList<SwaggerEndpoint> endpoints = provider.GetEndpoints();
 
         Assert.Collection(
             endpoints,
@@ -31,15 +31,15 @@ public sealed class HybridSwaggerEndpointProviderTests
     [Fact]
     public void GetEndpoints_ForDocumentName_MergesMatchingFallbackEndpoints()
     {
-        var stateEndpoint = CreateEndpoint("orders-cluster", "shared", "https://live-orders.test");
-        var fallbackEndpoint = CreateEndpoint("billing-cluster", "shared", "https://config-billing.test");
+        SwaggerEndpoint stateEndpoint = CreateEndpoint("orders-cluster", "shared", "https://live-orders.test");
+        SwaggerEndpoint fallbackEndpoint = CreateEndpoint("billing-cluster", "shared", "https://config-billing.test");
 
-        var provider = new HybridSwaggerEndpointProvider(
+        HybridSwaggerEndpointProvider provider = new HybridSwaggerEndpointProvider(
             new StubSwaggerEndpointProvider([stateEndpoint]),
             new StubSwaggerEndpointProvider([fallbackEndpoint]),
             NullLogger<HybridSwaggerEndpointProvider>.Instance);
 
-        var endpoints = provider.GetEndpoints("shared");
+        IReadOnlyList<SwaggerEndpoint> endpoints = provider.GetEndpoints("shared");
 
         Assert.Collection(
             endpoints,
@@ -50,16 +50,16 @@ public sealed class HybridSwaggerEndpointProviderTests
     [Fact]
     public void GetEndpoints_WhenLiveStateIsEmpty_FallsBackToConfiguration()
     {
-        var configEndpoint = CreateEndpoint("reports-cluster", "reports", "https://config-reports.test");
+        SwaggerEndpoint configEndpoint = CreateEndpoint("reports-cluster", "reports", "https://config-reports.test");
 
-        var provider = new HybridSwaggerEndpointProvider(
+        HybridSwaggerEndpointProvider provider = new HybridSwaggerEndpointProvider(
             new StubSwaggerEndpointProvider([]),
             new StubSwaggerEndpointProvider([configEndpoint]),
             NullLogger<HybridSwaggerEndpointProvider>.Instance);
 
-        var endpoints = provider.GetEndpoints();
+        IReadOnlyList<SwaggerEndpoint> endpoints = provider.GetEndpoints();
 
-        var endpoint = Assert.Single(endpoints);
+        SwaggerEndpoint endpoint = Assert.Single(endpoints);
         Assert.Equal("reports-cluster", endpoint.ClusterId);
         Assert.Equal(new Uri("https://config-reports.test"), endpoint.BaseAddress);
     }
@@ -79,11 +79,6 @@ public sealed class HybridSwaggerEndpointProviderTests
     {
         public IReadOnlyList<SwaggerEndpoint> GetEndpoints() => endpoints;
 
-        public IReadOnlyList<SwaggerEndpoint> GetEndpoints(string documentName)
-        {
-            return endpoints
-                .Where(endpoint => SwaggerEndpointDiscoveryHelper.MatchesDocumentName(endpoint, documentName))
-                .ToList();
-        }
+        public IReadOnlyList<SwaggerEndpoint> GetEndpoints(string documentName) => [.. endpoints.Where(endpoint => SwaggerEndpointDiscoveryHelper.MatchesDocumentName(endpoint, documentName))];
     }
 }

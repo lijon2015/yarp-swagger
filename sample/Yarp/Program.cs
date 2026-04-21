@@ -1,44 +1,41 @@
 using Duende.AccessTokenManagement;
 using Yarp.Configs;
+using Yarp.Transformations;
 using Yuzhu.Yarp.Swagger.Adapters.Swashbuckle;
 using Yuzhu.Yarp.Swagger.Extensions;
-using Yarp.Transformations;
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-var configuration = builder.Configuration.GetSection("ReverseProxy");
-var reverseProxyBuilder = builder.Services
+IConfigurationSection configuration = builder.Configuration.GetSection("ReverseProxy");
+IReverseProxyBuilder reverseProxyBuilder = builder.Services
     .AddReverseProxy()
     .LoadFromConfig(configuration)
     .AddTransformFactory<HeaderTransformFactory>();
 
 if (builder.Environment.IsDevelopment())
 {
-    builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddSwaggerGen();
+    _ = builder.Services.AddEndpointsApiExplorer();
+    _ = builder.Services.AddSwaggerGen();
 
-    builder.Services.AddHybridCache();
-    builder.Services.AddClientCredentialsTokenManagement()
+    _ = builder.Services.AddHybridCache();
+    _ = builder.Services.AddClientCredentialsTokenManagement()
         .AddClient(ClientCredentialsClientName.Parse("Identity"), client =>
         {
-            var identityConfig = builder.Configuration.GetSection("Identity").Get<IdentityConfig>()!;
+            IdentityConfig identityConfig = builder.Configuration.GetSection("Identity").Get<IdentityConfig>()!;
             client.TokenEndpoint = new Uri($"{identityConfig.Url}/connect/token");
             client.ClientId = ClientId.Parse(identityConfig.ClientId);
             client.ClientSecret = ClientSecret.Parse(identityConfig.ClientSecret);
         });
 
-    reverseProxyBuilder.AddSwaggerAggregation();
+    _ = reverseProxyBuilder.AddSwaggerAggregation();
 }
 
-var app = builder.Build();
+WebApplication app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(options =>
-    {
-        options.ConfigureAggregatedEndpoints(app.Services);
-    });
+    _ = app.UseSwagger();
+    _ = app.UseSwaggerUI(options => options.ConfigureAggregatedEndpoints(app.Services));
 }
 
 app.UseHttpsRedirection();

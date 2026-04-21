@@ -5,8 +5,8 @@ using Swashbuckle.AspNetCore.Swagger;
 using Yuzhu.Yarp.Swagger.Abstractions;
 using Yuzhu.Yarp.Swagger.Adapters.Swashbuckle;
 using Yuzhu.Yarp.Swagger.Background;
-using Yuzhu.Yarp.Swagger.Coordination;
 using Yuzhu.Yarp.Swagger.Configuration;
+using Yuzhu.Yarp.Swagger.Coordination;
 using Yuzhu.Yarp.Swagger.Discovery;
 using Yuzhu.Yarp.Swagger.Loading;
 using Yuzhu.Yarp.Swagger.Merging;
@@ -29,16 +29,16 @@ public static class ServiceCollectionExtensions
         this IReverseProxyBuilder builder,
         Action<SwaggerAggregationBuilder>? configure = null)
     {
-        var services = builder.Services;
+        IServiceCollection services = builder.Services;
 
-        services.AddOptions<SwaggerAggregationOptions>()
+        _ = services.AddOptions<SwaggerAggregationOptions>()
             .BindConfiguration(SwaggerAggregationOptions.SectionName)
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
         // Keep the HTTP client timeout disabled and let the resilience pipeline
         // plus the outer aggregation timeout own cancellation behavior.
-        services.AddHttpClient(SwaggerConstants.HttpClientName, client =>
+        _ = services.AddHttpClient(SwaggerConstants.HttpClientName, client =>
         {
             client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Accept.Add(
@@ -46,7 +46,7 @@ public static class ServiceCollectionExtensions
         })
         .ConfigurePrimaryHttpMessageHandler(sp =>
         {
-            var options = sp.GetRequiredService<IOptionsMonitor<SwaggerAggregationOptions>>().CurrentValue;
+            SwaggerAggregationOptions options = sp.GetRequiredService<IOptionsMonitor<SwaggerAggregationOptions>>().CurrentValue;
 
             return new SocketsHttpHandler
             {
@@ -66,23 +66,23 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IAggregatedDocumentStore, InMemoryAggregatedDocumentStore>();
         services.TryAddSingleton<SwaggerDocumentCoordinator>();
 
-        services.AddSingleton<ISwaggerDocumentTransformer, PathPrefixTransformer>();
-        services.AddSingleton<ISwaggerDocumentTransformer, PathFilterTransformer>();
+        _ = services.AddSingleton<ISwaggerDocumentTransformer, PathPrefixTransformer>();
+        _ = services.AddSingleton<ISwaggerDocumentTransformer, PathFilterTransformer>();
 
-        services.AddHostedService<SwaggerRefreshService>();
+        _ = services.AddHostedService<SwaggerRefreshService>();
 
         // Swashbuckle's official contract still requires ISwaggerProvider.
         // Register both interfaces so the middleware can use async when available
         // without breaking the required DI contract.
         services.TryAddSingleton<AggregatedSwaggerProvider>();
-        services.AddSingleton<IAsyncSwaggerProvider>(sp => sp.GetRequiredService<AggregatedSwaggerProvider>());
-        services.AddSingleton<ISwaggerProvider>(sp => sp.GetRequiredService<AggregatedSwaggerProvider>());
+        _ = services.AddSingleton<IAsyncSwaggerProvider>(sp => sp.GetRequiredService<AggregatedSwaggerProvider>());
+        _ = services.AddSingleton<ISwaggerProvider>(sp => sp.GetRequiredService<AggregatedSwaggerProvider>());
 
-        services.AddSwaggerTelemetry();
+        _ = services.AddSwaggerTelemetry();
 
         if (configure != null)
         {
-            var aggregationBuilder = new SwaggerAggregationBuilder(services);
+            SwaggerAggregationBuilder aggregationBuilder = new SwaggerAggregationBuilder(services);
             configure(aggregationBuilder);
             aggregationBuilder.Build();
         }
@@ -100,8 +100,8 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(configureOptions);
 
-        var result = builder.AddSwaggerAggregation(configure);
-        builder.Services.PostConfigure(configureOptions);
+        IReverseProxyBuilder result = builder.AddSwaggerAggregation(configure);
+        _ = builder.Services.PostConfigure(configureOptions);
         return result;
     }
 }

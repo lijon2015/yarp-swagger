@@ -28,8 +28,5 @@ internal sealed class IdentityConfig
         });
     }
 
-    public IEnumerable<ApiScope> GetApiScopes()
-    {
-        return Scopes.Select(x => new ApiScope(x));
-    }
+    public IEnumerable<ApiScope> GetApiScopes() => Scopes.Select(x => new ApiScope(x));
 }

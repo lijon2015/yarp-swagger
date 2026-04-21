@@ -10,19 +10,19 @@ namespace Yuzhu.Yarp.Swagger.Tests;
 public sealed class SwaggerDocumentCoordinatorTests
 {
     [Fact]
-    public void GetDocumentNames_WhenCacheHasEntries_ReturnsCachedNames()
+    public async Task GetDocumentNames_WhenCacheHasEntries_ReturnsCachedNames()
     {
-        var store = new InMemoryAggregatedDocumentStore();
-        store.SetAsync("orders", CreateDocument("orders")).AsTask().GetAwaiter().GetResult();
-        store.SetAsync("billing", CreateDocument("billing")).AsTask().GetAwaiter().GetResult();
+        InMemoryAggregatedDocumentStore store = new InMemoryAggregatedDocumentStore();
+        await store.SetAsync("orders", CreateDocument("orders"));
+        await store.SetAsync("billing", CreateDocument("billing"));
 
-        var coordinator = new SwaggerDocumentCoordinator(
+        SwaggerDocumentCoordinator coordinator = new SwaggerDocumentCoordinator(
             store,
             new StubEndpointProvider([CreateEndpoint("c", "untouched")]),
             new StubAggregator(static _ => throw new InvalidOperationException("aggregator must not run")),
             NullLogger<SwaggerDocumentCoordinator>.Instance);
 
-        var names = coordinator.GetDocumentNames();
+        IReadOnlyList<string> names = coordinator.GetDocumentNames();
 
         Assert.Equal(new[] { "orders", "billing" }.OrderBy(x => x), names.OrderBy(x => x));
     }
@@ -30,20 +30,20 @@ public sealed class SwaggerDocumentCoordinatorTests
     [Fact]
     public void GetDocumentNames_WhenCacheIsEmpty_DerivesFromEndpointsAndDeduplicates()
     {
-        var endpoints = new[]
-        {
+        SwaggerEndpoint[] endpoints =
+        [
             CreateEndpoint("cluster-a", "orders"),
             CreateEndpoint("cluster-b", "ORDERS"), // case-insensitive dup
             CreateEndpoint("cluster-c", null, clusterIdAsDocumentFallback: "fallback-name"),
-        };
+        ];
 
-        var coordinator = new SwaggerDocumentCoordinator(
+        SwaggerDocumentCoordinator coordinator = new SwaggerDocumentCoordinator(
             new InMemoryAggregatedDocumentStore(),
             new StubEndpointProvider(endpoints),
             new StubAggregator(static _ => throw new InvalidOperationException("aggregator must not run")),
             NullLogger<SwaggerDocumentCoordinator>.Instance);
 
-        var names = coordinator.GetDocumentNames();
+        IReadOnlyList<string> names = coordinator.GetDocumentNames();
 
         Assert.Equal(2, names.Count);
         Assert.Contains("orders", names, StringComparer.OrdinalIgnoreCase);
@@ -53,13 +53,13 @@ public sealed class SwaggerDocumentCoordinatorTests
     [Fact]
     public async Task RefreshAllDocumentsAsync_WhenNoEndpoints_ReturnsEmptyResult()
     {
-        var coordinator = new SwaggerDocumentCoordinator(
+        SwaggerDocumentCoordinator coordinator = new SwaggerDocumentCoordinator(
             new InMemoryAggregatedDocumentStore(),
             new StubEndpointProvider([]),
             new StubAggregator(static _ => throw new InvalidOperationException("aggregator must not run")),
             NullLogger<SwaggerDocumentCoordinator>.Instance);
 
-        var result = await coordinator.RefreshAllDocumentsAsync();
+        SwaggerRefreshResult result = await coordinator.RefreshAllDocumentsAsync();
 
         Assert.Same(SwaggerRefreshResult.Empty, result);
     }
@@ -67,17 +67,17 @@ public sealed class SwaggerDocumentCoordinatorTests
     [Fact]
     public async Task RefreshAllDocumentsAsync_GroupsByEffectiveDocumentName_AndStoresResults()
     {
-        var endpoints = new[]
-        {
+        SwaggerEndpoint[] endpoints =
+        [
             CreateEndpoint("orders-primary", "orders"),
             CreateEndpoint("orders-secondary", "orders"), // same document group
             CreateEndpoint("billing", null),              // document name = cluster id
-        };
+        ];
 
-        var store = new InMemoryAggregatedDocumentStore();
-        var aggregatorCalls = new List<string>();
+        InMemoryAggregatedDocumentStore store = new InMemoryAggregatedDocumentStore();
+        List<string> aggregatorCalls = [];
 
-        var coordinator = new SwaggerDocumentCoordinator(
+        SwaggerDocumentCoordinator coordinator = new SwaggerDocumentCoordinator(
             store,
             new StubEndpointProvider(endpoints),
             new StubAggregator(ctx =>
@@ -87,7 +87,7 @@ public sealed class SwaggerDocumentCoordinatorTests
             }),
             NullLogger<SwaggerDocumentCoordinator>.Instance);
 
-        var result = await coordinator.RefreshAllDocumentsAsync();
+        SwaggerRefreshResult result = await coordinator.RefreshAllDocumentsAsync();
 
         Assert.Equal(3, result.EndpointCount);
         Assert.Equal(2, result.DocumentCount);
@@ -98,8 +98,8 @@ public sealed class SwaggerDocumentCoordinatorTests
         Assert.Contains("orders", aggregatorCalls);
         Assert.Contains("billing", aggregatorCalls);
 
-        var cachedOrders = await store.GetAsync("orders");
-        var cachedBilling = await store.GetAsync("billing");
+        OpenApiDocument? cachedOrders = await store.GetAsync("orders");
+        OpenApiDocument? cachedBilling = await store.GetAsync("billing");
         Assert.NotNull(cachedOrders);
         Assert.NotNull(cachedBilling);
     }
@@ -107,14 +107,14 @@ public sealed class SwaggerDocumentCoordinatorTests
     [Fact]
     public async Task RefreshAllDocumentsAsync_WhenOneDocumentFails_CountsIndividualOutcomes()
     {
-        var endpoints = new[]
-        {
+        SwaggerEndpoint[] endpoints =
+        [
             CreateEndpoint("orders", "orders"),
             CreateEndpoint("billing", "billing"),
-        };
+        ];
 
-        var store = new InMemoryAggregatedDocumentStore();
-        var coordinator = new SwaggerDocumentCoordinator(
+        InMemoryAggregatedDocumentStore store = new InMemoryAggregatedDocumentStore();
+        SwaggerDocumentCoordinator coordinator = new SwaggerDocumentCoordinator(
             store,
             new StubEndpointProvider(endpoints),
             new StubAggregator(ctx => ctx.DocumentName == "billing"
@@ -122,7 +122,7 @@ public sealed class SwaggerDocumentCoordinatorTests
                 : Task.FromResult(CreateDocument(ctx.DocumentName!))),
             NullLogger<SwaggerDocumentCoordinator>.Instance);
 
-        var result = await coordinator.RefreshAllDocumentsAsync();
+        SwaggerRefreshResult result = await coordinator.RefreshAllDocumentsAsync();
 
         Assert.Equal(2, result.EndpointCount);
         Assert.Equal(2, result.DocumentCount);
@@ -136,13 +136,13 @@ public sealed class SwaggerDocumentCoordinatorTests
     [Fact]
     public async Task ResolveDocumentAsync_WhenEndpointMissing_ReturnsNotFound()
     {
-        var coordinator = new SwaggerDocumentCoordinator(
+        SwaggerDocumentCoordinator coordinator = new SwaggerDocumentCoordinator(
             new InMemoryAggregatedDocumentStore(),
             new StubEndpointProvider([CreateEndpoint("known", "known")]),
             new StubAggregator(static _ => throw new InvalidOperationException("aggregator must not run")),
             NullLogger<SwaggerDocumentCoordinator>.Instance);
 
-        var resolution = await coordinator.ResolveDocumentAsync("missing");
+        SwaggerDocumentResolution resolution = await coordinator.ResolveDocumentAsync("missing");
 
         Assert.Null(resolution.Document);
         Assert.False(resolution.FromCache);
@@ -152,13 +152,13 @@ public sealed class SwaggerDocumentCoordinatorTests
     [Fact]
     public async Task ResolveDocumentAsync_WhenAggregatorThrows_ReturnsFailedWithEndpointFoundTrue()
     {
-        var coordinator = new SwaggerDocumentCoordinator(
+        SwaggerDocumentCoordinator coordinator = new SwaggerDocumentCoordinator(
             new InMemoryAggregatedDocumentStore(),
             new StubEndpointProvider([CreateEndpoint("orders", "orders")]),
             new StubAggregator(static _ => throw new InvalidOperationException("boom")),
             NullLogger<SwaggerDocumentCoordinator>.Instance);
 
-        var resolution = await coordinator.ResolveDocumentAsync("orders");
+        SwaggerDocumentResolution resolution = await coordinator.ResolveDocumentAsync("orders");
 
         Assert.Null(resolution.Document);
         Assert.False(resolution.FromCache);
@@ -169,12 +169,12 @@ public sealed class SwaggerDocumentCoordinatorTests
     public async Task ResolveDocumentAsync_WhenCached_DoesNotInvokeAggregator()
     {
         const string documentName = "orders";
-        var store = new InMemoryAggregatedDocumentStore();
-        var cached = CreateDocument(documentName);
+        InMemoryAggregatedDocumentStore store = new InMemoryAggregatedDocumentStore();
+        OpenApiDocument cached = CreateDocument(documentName);
         await store.SetAsync(documentName, cached);
 
-        var aggregatorCalled = false;
-        var coordinator = new SwaggerDocumentCoordinator(
+        bool aggregatorCalled = false;
+        SwaggerDocumentCoordinator coordinator = new SwaggerDocumentCoordinator(
             store,
             new StubEndpointProvider([CreateEndpoint("orders", documentName)]),
             new StubAggregator(_ =>
@@ -184,7 +184,7 @@ public sealed class SwaggerDocumentCoordinatorTests
             }),
             NullLogger<SwaggerDocumentCoordinator>.Instance);
 
-        var resolution = await coordinator.ResolveDocumentAsync(documentName);
+        SwaggerDocumentResolution resolution = await coordinator.ResolveDocumentAsync(documentName);
 
         Assert.True(resolution.FromCache);
         Assert.Same(cached, resolution.Document);
@@ -210,7 +210,7 @@ public sealed class SwaggerDocumentCoordinatorTests
         return new OpenApiDocument
         {
             Info = new OpenApiInfo { Title = title, Version = "v1" },
-            Paths = new OpenApiPaths(),
+            Paths = [],
         };
     }
 
@@ -218,19 +218,11 @@ public sealed class SwaggerDocumentCoordinatorTests
     {
         public IReadOnlyList<SwaggerEndpoint> GetEndpoints() => endpoints;
 
-        public IReadOnlyList<SwaggerEndpoint> GetEndpoints(string documentName)
-        {
-            return endpoints
-                .Where(endpoint => SwaggerEndpointDiscoveryHelper.MatchesDocumentName(endpoint, documentName))
-                .ToList();
-        }
+        public IReadOnlyList<SwaggerEndpoint> GetEndpoints(string documentName) => [.. endpoints.Where(endpoint => SwaggerEndpointDiscoveryHelper.MatchesDocumentName(endpoint, documentName))];
     }
 
     private sealed class StubAggregator(Func<AggregationContext, Task<OpenApiDocument>> aggregateAsync) : ISwaggerAggregator
     {
-        public Task<OpenApiDocument> AggregateAsync(AggregationContext context, CancellationToken cancellationToken = default)
-        {
-            return aggregateAsync(context);
-        }
+        public Task<OpenApiDocument> AggregateAsync(AggregationContext context, CancellationToken cancellationToken = default) => aggregateAsync(context);
     }
 }

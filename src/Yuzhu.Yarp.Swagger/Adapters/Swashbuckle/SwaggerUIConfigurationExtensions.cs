@@ -17,9 +17,9 @@ public static class SwaggerUIConfigurationExtensions
         this SwaggerUIOptions options,
         IServiceProvider serviceProvider)
     {
-        var endpointProvider = serviceProvider.GetRequiredService<ISwaggerEndpointProvider>();
+        ISwaggerEndpointProvider endpointProvider = serviceProvider.GetRequiredService<ISwaggerEndpointProvider>();
 
-        var urls = endpointProvider.GetEndpoints()
+        List<UrlDescriptor> urls = [.. endpointProvider.GetEndpoints()
             .Select(endpoint => endpoint.DocumentName ?? endpoint.ClusterId)
             .Where(static documentName => !string.IsNullOrWhiteSpace(documentName))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -27,8 +27,7 @@ public static class SwaggerUIConfigurationExtensions
             {
                 Url = string.Format(SwaggerConstants.SwaggerJsonPathTemplate, documentName),
                 Name = documentName
-            })
-            .ToList();
+            })];
 
         if (urls.Count == 0)
         {
