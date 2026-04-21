@@ -139,7 +139,7 @@ app.Run();
 2. 启动 YARP 网关
 3. 访问 `https://localhost:<port>/swagger` 查看聚合后的 Swagger UI
 
-![Swagger UI 效果](https://raw.githubusercontent.com/andreytreyt/yarp-swagger/main/README.png)
+![Swagger UI 效果](https://raw.githubusercontent.com/lijon2015/yarp-swagger/main/README.png)
 
 ## 配置说明
 
@@ -153,7 +153,6 @@ app.Run();
 | `Swagger:Path` | Swagger JSON 文档路径 | `/swagger/v1/swagger.json` |
 | `Swagger:Prefix` | 添加到所有操作的路径前缀 | (无) |
 | `Swagger:PathFilter` | 用于过滤路径的正则表达式（最大 500 字符） | (无) |
-| `Swagger:OnlyPublishedPaths` | 仅包含已发布的路径 | `false` |
 | `Swagger:IsMetadataSource` | 使用此 Cluster 的文档信息作为元数据来源 | `false` |
 | `Swagger:AccessTokenClient` | OAuth2 客户端名称（用于认证） | (无) |
 | `Swagger:DocumentName` | 文档分组名称（默认使用 ClusterId） | (cluster id) |

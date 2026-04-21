@@ -12,14 +12,29 @@
         <PackageProjectUrl>https://github.com/lijon2015/yarp-swagger</PackageProjectUrl>
         <PackageTags>yarp;swagger;openapi;reverse-proxy;api-gateway</PackageTags>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
         <RepositoryUrl>https://github.com/lijon2015/yarp-swagger</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
+        <PackageReleaseNotes>
+v2.0.0 — API cleanup and discovery rework. Breaking changes:
+ - Removed synchronous IAggregatedDocumentStore.Get/Exists (use GetAsync).
+ - Removed Swagger:OnlyPublishedPaths metadata key and SwaggerEndpoint.OnlyPublishedPaths (use Swagger:PathFilter).
+ - SwaggerAggregationOptions properties switched from init to set.
+ - Default ISwaggerEndpointProvider is now HybridSwaggerEndpointProvider (config + YARP runtime).
+ - SwaggerAggregationBuilder.Configure / AddSwaggerAggregation(Action&lt;SwaggerAggregationOptions&gt;) now use PostConfigure so user overrides run after BindConfiguration.
+Added: SwaggerDocumentCoordinator (dedup load/merge), HybridSwaggerEndpointProvider, SwaggerEndpointDiscoveryHelper, SwaggerDocumentUnavailableException, Yuzhu.Yarp.Swagger.Tests project.
+See CHANGELOG.md for the full migration guide.
+        </PackageReleaseNotes>
     </PropertyGroup>
 
     <ItemGroup>
         <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
             <_Parameter1>Yuzhu.Yarp.Swagger.Tests</_Parameter1>
         </AssemblyAttribute>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\README.md" Pack="true" PackagePath="\" />
     </ItemGroup>
 
     <ItemGroup>
