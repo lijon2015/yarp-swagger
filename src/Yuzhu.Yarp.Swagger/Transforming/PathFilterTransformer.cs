@@ -1,7 +1,7 @@
-using System.Collections.Concurrent;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi;
+using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using Yuzhu.Yarp.Swagger.Abstractions;
 using Yuzhu.Yarp.Swagger.Configuration;
 
@@ -10,19 +10,14 @@ namespace Yuzhu.Yarp.Swagger.Transforming;
 /// <summary>
 /// 路径过滤转换器
 /// </summary>
-public sealed class PathFilterTransformer : ISwaggerDocumentTransformer
+public sealed class PathFilterTransformer(ILogger<PathFilterTransformer> logger) : ISwaggerDocumentTransformer
 {
-    private readonly ILogger<PathFilterTransformer> _logger;
+    private readonly ILogger<PathFilterTransformer> _logger = logger;
 
     /// <summary>
     /// 正则表达式缓存，避免重复编译
     /// </summary>
     private static readonly ConcurrentDictionary<string, Regex> RegexCache = new();
-
-    public PathFilterTransformer(ILogger<PathFilterTransformer> logger)
-    {
-        _logger = logger;
-    }
 
     public int Order => 10;
 
@@ -31,7 +26,7 @@ public sealed class PathFilterTransformer : ISwaggerDocumentTransformer
         TransformContext context,
         CancellationToken cancellationToken = default)
     {
-        var filterPattern = context.Endpoint.PathFilter;
+        string? filterPattern = context.Endpoint.PathFilter;
 
         if (string.IsNullOrEmpty(filterPattern))
         {
@@ -60,9 +55,9 @@ public sealed class PathFilterTransformer : ISwaggerDocumentTransformer
             return ValueTask.FromResult(document);
         }
 
-        var newPaths = new OpenApiPaths();
+        OpenApiPaths newPaths = [];
 
-        foreach (var path in document.Paths)
+        foreach (KeyValuePair<string, IOpenApiPathItem> path in document.Paths)
         {
             try
             {

@@ -1,5 +1,5 @@
-using System.Collections.Concurrent;
 using Microsoft.OpenApi;
+using System.Collections.Concurrent;
 using Yuzhu.Yarp.Swagger.Abstractions;
 
 namespace Yuzhu.Yarp.Swagger.Storage;
@@ -13,8 +13,8 @@ public sealed class InMemoryAggregatedDocumentStore : IAggregatedDocumentStore
 
     public ValueTask<OpenApiDocument?> GetAsync(string documentName, CancellationToken cancellationToken = default)
     {
-        _documents.TryGetValue(documentName, out var doc);
-        return ValueTask.FromResult<OpenApiDocument?>(doc);
+        _ = _documents.TryGetValue(documentName, out OpenApiDocument? doc);
+        return ValueTask.FromResult(doc);
     }
 
     public ValueTask SetAsync(string documentName, OpenApiDocument document, CancellationToken cancellationToken = default)
@@ -23,8 +23,5 @@ public sealed class InMemoryAggregatedDocumentStore : IAggregatedDocumentStore
         return ValueTask.CompletedTask;
     }
 
-    public IReadOnlyList<string> GetDocumentNames()
-    {
-        return _documents.Keys.ToList();
-    }
+    public IReadOnlyList<string> GetDocumentNames() => [.. _documents.Keys];
 }

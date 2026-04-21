@@ -16,10 +16,7 @@ public sealed class SwaggerEndpointDiscoveryHelperTests
     [InlineData(null, false)]
     [InlineData("yes", false)]
     [InlineData("1", false)]
-    public void IsTrue_OnlyMatchesLiteralTrueCaseInsensitively(string? value, bool expected)
-    {
-        Assert.Equal(expected, SwaggerEndpointDiscoveryHelper.IsTrue(value));
-    }
+    public void IsTrue_OnlyMatchesLiteralTrueCaseInsensitively(string? value, bool expected) => Assert.Equal(expected, SwaggerEndpointDiscoveryHelper.IsTrue(value));
 
     [Fact]
     public void IsSwaggerEnabled_ReadsEnabledMetadataKey()
@@ -36,7 +33,7 @@ public sealed class SwaggerEndpointDiscoveryHelperTests
     [Fact]
     public void MatchesDocumentName_UsesDocumentNameWhenSet()
     {
-        var endpoint = CreateMinimalEndpoint("cluster-a", documentName: "orders");
+        SwaggerEndpoint endpoint = CreateMinimalEndpoint("cluster-a", documentName: "orders");
 
         Assert.True(SwaggerEndpointDiscoveryHelper.MatchesDocumentName(endpoint, "orders"));
         Assert.True(SwaggerEndpointDiscoveryHelper.MatchesDocumentName(endpoint, "ORDERS"));
@@ -46,7 +43,7 @@ public sealed class SwaggerEndpointDiscoveryHelperTests
     [Fact]
     public void MatchesDocumentName_FallsBackToClusterIdWhenDocumentNameIsNull()
     {
-        var endpoint = CreateMinimalEndpoint("cluster-a", documentName: null);
+        SwaggerEndpoint endpoint = CreateMinimalEndpoint("cluster-a", documentName: null);
 
         Assert.True(SwaggerEndpointDiscoveryHelper.MatchesDocumentName(endpoint, "cluster-a"));
         Assert.True(SwaggerEndpointDiscoveryHelper.MatchesDocumentName(endpoint, "CLUSTER-A"));
@@ -70,7 +67,7 @@ public sealed class SwaggerEndpointDiscoveryHelperTests
     [Fact]
     public void GetEndpointIdentity_CombinesClusterIdAndDocumentNameWithSeparator()
     {
-        var endpoint = CreateMinimalEndpoint("cluster-a", "orders");
+        SwaggerEndpoint endpoint = CreateMinimalEndpoint("cluster-a", "orders");
 
         Assert.Equal("cluster-a|orders", SwaggerEndpointDiscoveryHelper.GetEndpointIdentity(endpoint));
     }
@@ -78,7 +75,7 @@ public sealed class SwaggerEndpointDiscoveryHelperTests
     [Fact]
     public void GetEndpointIdentity_UsesClusterIdOnBothSidesWhenDocumentNameMissing()
     {
-        var endpoint = CreateMinimalEndpoint("cluster-a", documentName: null);
+        SwaggerEndpoint endpoint = CreateMinimalEndpoint("cluster-a", documentName: null);
 
         Assert.Equal("cluster-a|cluster-a", SwaggerEndpointDiscoveryHelper.GetEndpointIdentity(endpoint));
     }
@@ -86,7 +83,7 @@ public sealed class SwaggerEndpointDiscoveryHelperTests
     [Fact]
     public void CreateEndpoint_PopulatesAllSupportedMetadataFields()
     {
-        var metadata = new Dictionary<string, string?>(StringComparer.Ordinal)
+        Dictionary<string, string?> metadata = new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             [MetadataKeys.Path] = "/custom/swagger.json",
             [MetadataKeys.Prefix] = "/api-v1",
@@ -96,7 +93,7 @@ public sealed class SwaggerEndpointDiscoveryHelperTests
             [MetadataKeys.DocumentName] = "orders",
         };
 
-        var endpoint = SwaggerEndpointDiscoveryHelper.CreateEndpoint(
+        SwaggerEndpoint? endpoint = SwaggerEndpointDiscoveryHelper.CreateEndpoint(
             "orders-cluster",
             "https://orders.test",
             key => metadata.GetValueOrDefault(key),
@@ -104,7 +101,7 @@ public sealed class SwaggerEndpointDiscoveryHelperTests
             NullLogger.Instance);
 
         Assert.NotNull(endpoint);
-        Assert.Equal("orders-cluster", endpoint!.ClusterId);
+        Assert.Equal("orders-cluster", endpoint.ClusterId);
         Assert.Equal(new Uri("https://orders.test"), endpoint.BaseAddress);
         Assert.Equal("/custom/swagger.json", endpoint.SwaggerPath);
         Assert.Equal("/api-v1", endpoint.PathPrefix);
@@ -122,13 +119,13 @@ public sealed class SwaggerEndpointDiscoveryHelperTests
     [Fact]
     public void CreateEndpoint_IgnoresRemovedOnlyPublishedPathsMetadataKey()
     {
-        var readKeys = new List<string>();
-        var metadata = new Dictionary<string, string?>(StringComparer.Ordinal)
+        List<string> readKeys = [];
+        Dictionary<string, string?> metadata = new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             ["Swagger:OnlyPublishedPaths"] = "true",
         };
 
-        var endpoint = SwaggerEndpointDiscoveryHelper.CreateEndpoint(
+        SwaggerEndpoint? endpoint = SwaggerEndpointDiscoveryHelper.CreateEndpoint(
             "orders-cluster",
             "https://orders.test",
             key =>
@@ -149,7 +146,7 @@ public sealed class SwaggerEndpointDiscoveryHelperTests
     [Fact]
     public void CreateEndpoint_UsesDefaultSwaggerPathWhenPathMetadataMissing()
     {
-        var endpoint = SwaggerEndpointDiscoveryHelper.CreateEndpoint(
+        SwaggerEndpoint? endpoint = SwaggerEndpointDiscoveryHelper.CreateEndpoint(
             "orders-cluster",
             "https://orders.test",
             _ => null,
@@ -157,7 +154,7 @@ public sealed class SwaggerEndpointDiscoveryHelperTests
             NullLogger.Instance);
 
         Assert.NotNull(endpoint);
-        Assert.Equal("/swagger/v1/swagger.json", endpoint!.SwaggerPath);
+        Assert.Equal("/swagger/v1/swagger.json", endpoint.SwaggerPath);
         Assert.False(endpoint.IsMetadataSource);
         Assert.Null(endpoint.DocumentName);
     }
@@ -168,7 +165,7 @@ public sealed class SwaggerEndpointDiscoveryHelperTests
     [InlineData(null)]
     public void CreateEndpoint_ReturnsNullForEmptyOrWhitespaceBaseAddress(string? baseAddress)
     {
-        var endpoint = SwaggerEndpointDiscoveryHelper.CreateEndpoint(
+        SwaggerEndpoint? endpoint = SwaggerEndpointDiscoveryHelper.CreateEndpoint(
             "orders-cluster",
             baseAddress,
             _ => null,
@@ -181,7 +178,7 @@ public sealed class SwaggerEndpointDiscoveryHelperTests
     [Fact]
     public void CreateEndpoint_ReturnsNullForInvalidBaseAddress()
     {
-        var endpoint = SwaggerEndpointDiscoveryHelper.CreateEndpoint(
+        SwaggerEndpoint? endpoint = SwaggerEndpointDiscoveryHelper.CreateEndpoint(
             "orders-cluster",
             "not a url",
             _ => null,

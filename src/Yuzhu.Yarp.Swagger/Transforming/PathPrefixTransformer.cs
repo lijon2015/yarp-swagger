@@ -15,20 +15,20 @@ public sealed class PathPrefixTransformer : ISwaggerDocumentTransformer
         TransformContext context,
         CancellationToken cancellationToken = default)
     {
-        var prefix = context.Endpoint.PathPrefix;
+        string? prefix = context.Endpoint.PathPrefix;
 
         if (string.IsNullOrEmpty(prefix))
         {
             return ValueTask.FromResult(document);
         }
 
-        var newPaths = new OpenApiPaths();
-        var normalizedPrefix = prefix.TrimEnd('/');
+        OpenApiPaths newPaths = [];
+        string normalizedPrefix = prefix.TrimEnd('/');
 
-        foreach (var path in document.Paths)
+        foreach (KeyValuePair<string, IOpenApiPathItem> path in document.Paths)
         {
-            var normalizedPath = path.Key.StartsWith('/') ? path.Key : "/" + path.Key;
-            var newKey = normalizedPrefix + normalizedPath;
+            string normalizedPath = path.Key.StartsWith('/') ? path.Key : "/" + path.Key;
+            string newKey = normalizedPrefix + normalizedPath;
             newPaths[newKey] = path.Value;
         }
 

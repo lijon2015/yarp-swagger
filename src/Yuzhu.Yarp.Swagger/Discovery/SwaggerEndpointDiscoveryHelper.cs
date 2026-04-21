@@ -6,10 +6,7 @@ namespace Yuzhu.Yarp.Swagger.Discovery;
 
 internal static class SwaggerEndpointDiscoveryHelper
 {
-    public static bool IsSwaggerEnabled(Func<string, string?> getMetadataValue)
-    {
-        return IsTrue(getMetadataValue(MetadataKeys.Enabled));
-    }
+    public static bool IsSwaggerEnabled(Func<string, string?> getMetadataValue) => IsTrue(getMetadataValue(MetadataKeys.Enabled));
 
     public static bool MatchesDocumentName(SwaggerEndpoint endpoint, string documentName)
     {
@@ -19,10 +16,7 @@ internal static class SwaggerEndpointDiscoveryHelper
             StringComparison.OrdinalIgnoreCase);
     }
 
-    public static string GetEffectiveDocumentName(SwaggerEndpoint endpoint)
-    {
-        return endpoint.DocumentName ?? endpoint.ClusterId;
-    }
+    public static string GetEffectiveDocumentName(SwaggerEndpoint endpoint) => endpoint.DocumentName ?? endpoint.ClusterId;
 
     public static string GetEndpointIdentity(SwaggerEndpoint endpoint)
     {
@@ -37,10 +31,7 @@ internal static class SwaggerEndpointDiscoveryHelper
             });
     }
 
-    public static bool IsTrue(string? value)
-    {
-        return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
-    }
+    public static bool IsTrue(string? value) => string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
 
     public static SwaggerEndpoint? CreateEndpoint(
         string clusterId,
@@ -57,7 +48,7 @@ internal static class SwaggerEndpointDiscoveryHelper
 
         try
         {
-            var endpoint = new SwaggerEndpoint
+            SwaggerEndpoint endpoint = new SwaggerEndpoint
             {
                 ClusterId = clusterId,
                 BaseAddress = new Uri(baseAddress),

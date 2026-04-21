@@ -1,15 +1,15 @@
 using Identity.Configs;
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-var identityConfig = builder.Configuration.GetSection("Identity").Get<IdentityConfig>()!;
+IdentityConfig identityConfig = builder.Configuration.GetSection("Identity").Get<IdentityConfig>()!;
 
 builder.Services.AddIdentityServer()
     .AddDeveloperSigningCredential()
     .AddInMemoryApiScopes(identityConfig.GetApiScopes())
     .AddInMemoryClients(identityConfig.GetClients());
 
-var app = builder.Build();
+WebApplication app = builder.Build();
 
 app.UseIdentityServer();
 

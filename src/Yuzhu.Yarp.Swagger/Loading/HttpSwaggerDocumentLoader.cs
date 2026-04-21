@@ -1,10 +1,10 @@
-using System.Diagnostics;
 using Duende.AccessTokenManagement;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Microsoft.OpenApi.Reader;
 using Polly.Timeout;
+using System.Diagnostics;
 using Yuzhu.Yarp.Swagger.Abstractions;
 using Yuzhu.Yarp.Swagger.Configuration;
 using Yuzhu.Yarp.Swagger.Telemetry;
@@ -14,59 +14,51 @@ namespace Yuzhu.Yarp.Swagger.Loading;
 /// <summary>
 /// 基于 HTTP 的 Swagger 文档加载器
 /// </summary>
-public sealed class HttpSwaggerDocumentLoader : ISwaggerDocumentLoader
+public sealed class HttpSwaggerDocumentLoader(
+    IHttpClientFactory httpClientFactory,
+    IOptionsMonitor<SwaggerAggregationOptions> options,
+    ILogger<HttpSwaggerDocumentLoader> logger,
+    IClientCredentialsTokenManager? tokenManager = null) : ISwaggerDocumentLoader
 {
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly IClientCredentialsTokenManager? _tokenManager;
-    private readonly IOptionsMonitor<SwaggerAggregationOptions> _options;
-    private readonly ILogger<HttpSwaggerDocumentLoader> _logger;
-
-    public HttpSwaggerDocumentLoader(
-        IHttpClientFactory httpClientFactory,
-        IOptionsMonitor<SwaggerAggregationOptions> options,
-        ILogger<HttpSwaggerDocumentLoader> logger,
-        IClientCredentialsTokenManager? tokenManager = null)
-    {
-        _httpClientFactory = httpClientFactory;
-        _tokenManager = tokenManager;
-        _options = options;
-        _logger = logger;
-    }
+    private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
+    private readonly IClientCredentialsTokenManager? _tokenManager = tokenManager;
+    private readonly IOptionsMonitor<SwaggerAggregationOptions> _options = options;
+    private readonly ILogger<HttpSwaggerDocumentLoader> _logger = logger;
 
     public async Task<SwaggerLoadResult> LoadAsync(
         SwaggerEndpoint endpoint,
         CancellationToken cancellationToken = default)
     {
-        var sw = Stopwatch.StartNew();
+        Stopwatch sw = Stopwatch.StartNew();
 
         // 使用具名的 HTTP 客户端
-        var httpClient = _httpClientFactory.CreateClient(SwaggerConstants.HttpClientName);
+        HttpClient httpClient = _httpClientFactory.CreateClient(SwaggerConstants.HttpClientName);
 
-        using var activity = SwaggerTelemetry.ActivitySource.StartActivity("LoadSwaggerDocument");
-        activity?.SetTag("cluster.id", endpoint.ClusterId);
-        activity?.SetTag("swagger.url", endpoint.SwaggerUrl.ToString());
+        using Activity? activity = SwaggerTelemetry.ActivitySource.StartActivity("LoadSwaggerDocument");
+        _ = (activity?.SetTag("cluster.id", endpoint.ClusterId));
+        _ = (activity?.SetTag("swagger.url", endpoint.SwaggerUrl.ToString()));
 
-        var options = _options.CurrentValue;
+        SwaggerAggregationOptions options = _options.CurrentValue;
 
         // 整体预算 = 单次 LoadTimeout × (重试次数 + 1) + 缓冲，确保弹性管道的重试有时间窗口完成。
         // 弹性管道负责每次尝试的超时和重试；本 CTS 是兜底，避免极端情况下无界等待。
-        var overallBudget = TimeSpan.FromMilliseconds(
+        TimeSpan overallBudget = TimeSpan.FromMilliseconds(
             options.LoadTimeout.TotalMilliseconds * (options.MaxRetryAttempts + 1) + 5000);
 
         try
         {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(overallBudget);
 
             // 创建请求
-            using var request = new HttpRequestMessage(HttpMethod.Get, endpoint.SwaggerUrl);
+            using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, endpoint.SwaggerUrl);
 
             // 如果配置了 AccessToken 客户端，获取并添加 token
             if (!string.IsNullOrEmpty(endpoint.AccessTokenClient) && _tokenManager != null)
             {
                 try
                 {
-                    var tokenResult = await _tokenManager
+                    ClientCredentialsToken tokenResult = await _tokenManager
                         .GetAccessTokenAsync(ClientCredentialsClientName.Parse(endpoint.AccessTokenClient), ct: cts.Token)
                         .GetToken();
 
@@ -88,11 +80,11 @@ public sealed class HttpSwaggerDocumentLoader : ISwaggerDocumentLoader
                 }
             }
 
-            using var response = await httpClient.SendAsync(request, cts.Token);
-            response.EnsureSuccessStatusCode();
+            using HttpResponseMessage response = await httpClient.SendAsync(request, cts.Token);
+            _ = response.EnsureSuccessStatusCode();
 
-            var maxSize = options.MaxDocumentSizeBytes;
-            var declaredLength = response.Content.Headers.ContentLength;
+            int maxSize = options.MaxDocumentSizeBytes;
+            long? declaredLength = response.Content.Headers.ContentLength;
 
             // 优先读取 Content-Length 头进行预校验，避免下载超大文档浪费带宽和内存。
             if (declaredLength.HasValue && declaredLength.Value > maxSize)
@@ -114,13 +106,13 @@ public sealed class HttpSwaggerDocumentLoader : ISwaggerDocumentLoader
                 };
             }
 
-            await using var stream = await response.Content.ReadAsStreamAsync(cts.Token);
+            await using Stream stream = await response.Content.ReadAsStreamAsync(cts.Token);
 
             // 使用内存流以支持同步读取（带大小限制）
-            using var memoryStream = new MemoryStream(
+            using MemoryStream memoryStream = new MemoryStream(
                 capacity: declaredLength is > 0 and <= int.MaxValue ? (int)declaredLength.Value : 8192);
 
-            var buffer = new byte[8192];
+            byte[] buffer = new byte[8192];
             long totalBytesRead = 0;
             int bytesRead;
 
@@ -149,8 +141,8 @@ public sealed class HttpSwaggerDocumentLoader : ISwaggerDocumentLoader
 
             memoryStream.Position = 0;
 
-            var readResult = await OpenApiDocument.LoadAsync(memoryStream, cancellationToken: cts.Token);
-            var document = readResult.Document;
+            ReadResult readResult = await OpenApiDocument.LoadAsync(memoryStream, cancellationToken: cts.Token);
+            OpenApiDocument? document = readResult.Document;
 
             sw.Stop();
 
@@ -174,7 +166,7 @@ public sealed class HttpSwaggerDocumentLoader : ISwaggerDocumentLoader
             }
             else
             {
-                var errorMessage = "Failed to parse OpenAPI document";
+                string errorMessage = "Failed to parse OpenAPI document";
                 _logger.LogWarning(
                     "Failed to parse Swagger document for {ClusterId} from {Url}",
                     endpoint.ClusterId, endpoint.SwaggerUrl);

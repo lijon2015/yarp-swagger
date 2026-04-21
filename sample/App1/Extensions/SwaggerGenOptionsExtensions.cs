@@ -18,7 +18,7 @@ public static class SwaggerGenOptionsExtensions
             Scheme = JwtBearerDefaults.AuthenticationScheme
         });
 
-        var securitySchemeReference = new OpenApiSecuritySchemeReference(JwtBearerDefaults.AuthenticationScheme);
+        OpenApiSecuritySchemeReference securitySchemeReference = new OpenApiSecuritySchemeReference(JwtBearerDefaults.AuthenticationScheme);
 
         options.AddSecurityRequirement(_ => new OpenApiSecurityRequirement
         {

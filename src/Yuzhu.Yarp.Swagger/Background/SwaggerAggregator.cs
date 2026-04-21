@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
+using System.Diagnostics;
 using Yuzhu.Yarp.Swagger.Abstractions;
 using Yuzhu.Yarp.Swagger.Configuration;
 using Yuzhu.Yarp.Swagger.Telemetry;
@@ -10,46 +11,37 @@ namespace Yuzhu.Yarp.Swagger.Background;
 /// <summary>
 /// Swagger document aggregation service.
 /// </summary>
-public sealed class SwaggerAggregator : ISwaggerAggregator
+public sealed class SwaggerAggregator(
+    ISwaggerDocumentLoader loader,
+    ISwaggerDocumentMerger merger,
+    IEnumerable<ISwaggerDocumentTransformer> transformers,
+    IOptionsMonitor<SwaggerAggregationOptions> options,
+    ILogger<SwaggerAggregator> logger) : ISwaggerAggregator
 {
-    private readonly ISwaggerDocumentLoader _loader;
-    private readonly ISwaggerDocumentMerger _merger;
-    private readonly IReadOnlyList<ISwaggerDocumentTransformer> _transformers;
-    private readonly IOptionsMonitor<SwaggerAggregationOptions> _options;
-    private readonly ILogger<SwaggerAggregator> _logger;
-
-    public SwaggerAggregator(
-        ISwaggerDocumentLoader loader,
-        ISwaggerDocumentMerger merger,
-        IEnumerable<ISwaggerDocumentTransformer> transformers,
-        IOptionsMonitor<SwaggerAggregationOptions> options,
-        ILogger<SwaggerAggregator> logger)
-    {
-        _loader = loader;
-        _merger = merger;
-        _transformers = transformers.OrderBy(t => t.Order).ToList();
-        _options = options;
-        _logger = logger;
-    }
+    private readonly ISwaggerDocumentLoader _loader = loader;
+    private readonly ISwaggerDocumentMerger _merger = merger;
+    private readonly IReadOnlyList<ISwaggerDocumentTransformer> _transformers = [.. transformers.OrderBy(t => t.Order)];
+    private readonly IOptionsMonitor<SwaggerAggregationOptions> _options = options;
+    private readonly ILogger<SwaggerAggregator> _logger = logger;
 
     public async Task<OpenApiDocument> AggregateAsync(
         AggregationContext context,
         CancellationToken cancellationToken = default)
     {
-        using var activity = SwaggerTelemetry.ActivitySource.StartActivity("AggregateDocuments");
-        activity?.SetTag("document.name", context.DocumentName);
-        activity?.SetTag("endpoints.count", context.Endpoints.Count);
+        using Activity? activity = SwaggerTelemetry.ActivitySource.StartActivity("AggregateDocuments");
+        _ = (activity?.SetTag("document.name", context.DocumentName));
+        _ = (activity?.SetTag("endpoints.count", context.Endpoints.Count));
 
-        var options = _options.CurrentValue;
+        SwaggerAggregationOptions options = _options.CurrentValue;
 
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(options.AggregationTimeout);
-        var aggregationToken = cts.Token;
+        CancellationToken aggregationToken = cts.Token;
 
         try
         {
-            var loadResults = new SwaggerLoadResult[context.Endpoints.Count];
-            var indexedEndpoints = context.Endpoints.Select((endpoint, index) => (endpoint, index));
+            SwaggerLoadResult[] loadResults = new SwaggerLoadResult[context.Endpoints.Count];
+            IEnumerable<(SwaggerEndpoint endpoint, int index)> indexedEndpoints = context.Endpoints.Select((endpoint, index) => (endpoint, index));
 
             await Parallel.ForEachAsync(
                 indexedEndpoints,
@@ -58,10 +50,7 @@ public sealed class SwaggerAggregator : ISwaggerAggregator
                     CancellationToken = aggregationToken,
                     MaxDegreeOfParallelism = options.MaxParallelism
                 },
-                async (item, ct) =>
-                {
-                    loadResults[item.index] = await LoadAndTransformAsync(item.endpoint, ct);
-                });
+                async (item, ct) => loadResults[item.index] = await LoadAndTransformAsync(item.endpoint, ct));
 
             _logger.LogDebug(
                 "Loaded {SuccessCount}/{TotalCount} documents for '{DocumentName}'",
@@ -91,21 +80,21 @@ public sealed class SwaggerAggregator : ISwaggerAggregator
         SwaggerEndpoint endpoint,
         CancellationToken cancellationToken)
     {
-        var loadResult = await _loader.LoadAsync(endpoint, cancellationToken);
+        SwaggerLoadResult loadResult = await _loader.LoadAsync(endpoint, cancellationToken);
 
         if (!loadResult.IsSuccess || loadResult.Document == null)
         {
             return loadResult;
         }
 
-        var document = loadResult.Document;
-        var transformContext = new TransformContext
+        OpenApiDocument document = loadResult.Document;
+        TransformContext transformContext = new TransformContext
         {
             ClusterId = endpoint.ClusterId,
             Endpoint = endpoint
         };
 
-        foreach (var transformer in _transformers)
+        foreach (ISwaggerDocumentTransformer transformer in _transformers)
         {
             try
             {

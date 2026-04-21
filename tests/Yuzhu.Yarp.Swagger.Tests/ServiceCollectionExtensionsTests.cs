@@ -1,9 +1,9 @@
-using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.Swagger;
+using System.Diagnostics.CodeAnalysis;
 using Yarp.ReverseProxy;
 using Yarp.ReverseProxy.Model;
 using Yuzhu.Yarp.Swagger.Abstractions;
@@ -19,21 +19,21 @@ public sealed class ServiceCollectionExtensionsTests
     [Fact]
     public void AddSwaggerAggregation_RegistersHybridEndpointProviderAsDefault()
     {
-        using var provider = BuildProvider();
+        using ServiceProvider provider = BuildProvider();
 
-        var endpointProvider = provider.GetRequiredService<ISwaggerEndpointProvider>();
+        ISwaggerEndpointProvider endpointProvider = provider.GetRequiredService<ISwaggerEndpointProvider>();
 
-        Assert.IsType<HybridSwaggerEndpointProvider>(endpointProvider);
+        _ = Assert.IsType<HybridSwaggerEndpointProvider>(endpointProvider);
     }
 
     [Fact]
     public void AddSwaggerAggregation_RegistersAggregatedProviderForBothSyncAndAsyncSwashbuckleContracts()
     {
-        using var provider = BuildProvider();
+        using ServiceProvider provider = BuildProvider();
 
-        var aggregated = provider.GetRequiredService<AggregatedSwaggerProvider>();
-        var async = provider.GetRequiredService<IAsyncSwaggerProvider>();
-        var sync = provider.GetRequiredService<ISwaggerProvider>();
+        AggregatedSwaggerProvider aggregated = provider.GetRequiredService<AggregatedSwaggerProvider>();
+        IAsyncSwaggerProvider async = provider.GetRequiredService<IAsyncSwaggerProvider>();
+        ISwaggerProvider sync = provider.GetRequiredService<ISwaggerProvider>();
 
         Assert.Same(aggregated, async);
         Assert.Same(aggregated, sync);
@@ -42,13 +42,13 @@ public sealed class ServiceCollectionExtensionsTests
     [Fact]
     public void AddSwaggerAggregation_BindsOptionsFromConfiguration()
     {
-        var configured = TimeSpan.FromSeconds(42);
-        using var provider = BuildProvider(configOverrides: new Dictionary<string, string?>
+        TimeSpan configured = TimeSpan.FromSeconds(42);
+        using ServiceProvider provider = BuildProvider(configOverrides: new Dictionary<string, string?>
         {
             [$"{SwaggerAggregationOptions.SectionName}:RefreshInterval"] = configured.ToString(),
         });
 
-        var options = provider.GetRequiredService<IOptions<SwaggerAggregationOptions>>().Value;
+        SwaggerAggregationOptions options = provider.GetRequiredService<IOptions<SwaggerAggregationOptions>>().Value;
 
         Assert.Equal(configured, options.RefreshInterval);
     }
@@ -62,19 +62,19 @@ public sealed class ServiceCollectionExtensionsTests
     [Fact]
     public void AddSwaggerAggregation_ConfigureOptionsOverload_RunsAsPostConfigureAndOverridesConfiguration()
     {
-        var configValue = TimeSpan.FromSeconds(10);
-        var overrideValue = TimeSpan.FromMinutes(9);
+        TimeSpan configValue = TimeSpan.FromSeconds(10);
+        TimeSpan overrideValue = TimeSpan.FromMinutes(9);
 
-        var services = CreateBaseServices(new Dictionary<string, string?>
+        IServiceCollection services = CreateBaseServices(new Dictionary<string, string?>
         {
             [$"{SwaggerAggregationOptions.SectionName}:RefreshInterval"] = configValue.ToString(),
         });
 
-        BuildBuilder(services).AddSwaggerAggregation(
+        _ = BuildBuilder(services).AddSwaggerAggregation(
             options => options.RefreshInterval = overrideValue);
 
-        using var provider = services.BuildServiceProvider();
-        var resolved = provider.GetRequiredService<IOptions<SwaggerAggregationOptions>>().Value;
+        using ServiceProvider provider = services.BuildServiceProvider();
+        SwaggerAggregationOptions resolved = provider.GetRequiredService<IOptions<SwaggerAggregationOptions>>().Value;
 
         Assert.Equal(overrideValue, resolved.RefreshInterval);
     }
@@ -82,19 +82,19 @@ public sealed class ServiceCollectionExtensionsTests
     [Fact]
     public void AddSwaggerAggregation_BuilderConfigure_RunsAsPostConfigureAndOverridesConfiguration()
     {
-        var configValue = TimeSpan.FromSeconds(10);
-        var overrideValue = TimeSpan.FromMinutes(9);
+        TimeSpan configValue = TimeSpan.FromSeconds(10);
+        TimeSpan overrideValue = TimeSpan.FromMinutes(9);
 
-        var services = CreateBaseServices(new Dictionary<string, string?>
+        IServiceCollection services = CreateBaseServices(new Dictionary<string, string?>
         {
             [$"{SwaggerAggregationOptions.SectionName}:RefreshInterval"] = configValue.ToString(),
         });
 
-        BuildBuilder(services).AddSwaggerAggregation(builder =>
+        _ = BuildBuilder(services).AddSwaggerAggregation(builder =>
             builder.Configure(o => o.RefreshInterval = overrideValue));
 
-        using var provider = services.BuildServiceProvider();
-        var resolved = provider.GetRequiredService<IOptions<SwaggerAggregationOptions>>().Value;
+        using ServiceProvider provider = services.BuildServiceProvider();
+        SwaggerAggregationOptions resolved = provider.GetRequiredService<IOptions<SwaggerAggregationOptions>>().Value;
 
         Assert.Equal(overrideValue, resolved.RefreshInterval);
     }
@@ -102,36 +102,36 @@ public sealed class ServiceCollectionExtensionsTests
     [Fact]
     public void AddSwaggerAggregation_BuilderUseEndpointProvider_ReplacesHybridDefault()
     {
-        var services = CreateBaseServices();
+        IServiceCollection services = CreateBaseServices();
 
-        BuildBuilder(services).AddSwaggerAggregation(builder =>
+        _ = BuildBuilder(services).AddSwaggerAggregation(builder =>
             builder.UseEndpointProvider<ConfigBasedSwaggerEndpointProvider>());
 
-        using var provider = services.BuildServiceProvider();
-        var resolved = provider.GetRequiredService<ISwaggerEndpointProvider>();
+        using ServiceProvider provider = services.BuildServiceProvider();
+        ISwaggerEndpointProvider resolved = provider.GetRequiredService<ISwaggerEndpointProvider>();
 
-        Assert.IsType<ConfigBasedSwaggerEndpointProvider>(resolved);
+        _ = Assert.IsType<ConfigBasedSwaggerEndpointProvider>(resolved);
     }
 
     private static ServiceProvider BuildProvider(IDictionary<string, string?>? configOverrides = null)
     {
-        var services = CreateBaseServices(configOverrides);
-        BuildBuilder(services).AddSwaggerAggregation();
+        IServiceCollection services = CreateBaseServices(configOverrides);
+        _ = BuildBuilder(services).AddSwaggerAggregation();
         return services.BuildServiceProvider();
     }
 
     private static IServiceCollection CreateBaseServices(IDictionary<string, string?>? configOverrides = null)
     {
-        var configBuilder = new ConfigurationBuilder();
+        ConfigurationBuilder configBuilder = new ConfigurationBuilder();
         if (configOverrides is { Count: > 0 })
         {
-            configBuilder.AddInMemoryCollection(configOverrides);
+            _ = configBuilder.AddInMemoryCollection(configOverrides);
         }
 
-        var services = new ServiceCollection();
-        services.AddLogging(logging => logging.SetMinimumLevel(LogLevel.Warning));
-        services.AddSingleton<IConfiguration>(configBuilder.Build());
-        services.AddSingleton<IProxyStateLookup, StubProxyStateLookup>();
+        ServiceCollection services = new ServiceCollection();
+        _ = services.AddLogging(logging => logging.SetMinimumLevel(LogLevel.Warning));
+        _ = services.AddSingleton<IConfiguration>(configBuilder.Build());
+        _ = services.AddSingleton<IProxyStateLookup, StubProxyStateLookup>();
         return services;
     }
 

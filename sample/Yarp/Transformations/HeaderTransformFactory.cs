@@ -13,14 +13,14 @@ public class HeaderTransformFactory : ITransformFactory
     /// </summary>
     public bool Validate(TransformRouteValidationContext context, IReadOnlyDictionary<string, string> transformValues)
     {
-        if (transformValues.TryGetValue("RenameHeader", out var header))
+        if (transformValues.TryGetValue("RenameHeader", out string? header))
         {
             if (string.IsNullOrEmpty(header))
             {
                 context.Errors.Add(new ArgumentException("A non-empty RenameHeader value is required"));
             }
 
-            if (transformValues.TryGetValue("Set", out var newHeader))
+            if (transformValues.TryGetValue("Set", out string? newHeader))
             {
                 if (string.IsNullOrEmpty(newHeader))
                 {
@@ -43,14 +43,14 @@ public class HeaderTransformFactory : ITransformFactory
     /// </summary>
     public bool Build(TransformBuilderContext context, IReadOnlyDictionary<string, string> transformValues)
     {
-        if (transformValues.TryGetValue("RenameHeader", out var header))
+        if (transformValues.TryGetValue("RenameHeader", out string? header))
         {
             if (string.IsNullOrEmpty(header))
             {
                 throw new ArgumentException("A non-empty RenameHeader value is required");
             }
 
-            if (transformValues.TryGetValue("Set", out var newHeader))
+            if (transformValues.TryGetValue("Set", out string? newHeader))
             {
                 if (string.IsNullOrEmpty(newHeader))
                 {
@@ -62,12 +62,12 @@ public class HeaderTransformFactory : ITransformFactory
                 throw new ArgumentException("Set option is required");
             }
 
-            context.AddRequestTransform(transformContext =>
+            _ = context.AddRequestTransform(transformContext =>
             {
-                if (transformContext.ProxyRequest.Headers.TryGetValues(header, out var headerValue))
+                if (transformContext.ProxyRequest.Headers.TryGetValues(header, out IEnumerable<string>? headerValue))
                 {
                     // Remove the original header
-                    transformContext.ProxyRequest.Headers.Remove(header);
+                    _ = transformContext.ProxyRequest.Headers.Remove(header);
 
                     // Add a new header with the same value(s) as the original header
                     transformContext.ProxyRequest.Headers.Add(newHeader, headerValue);

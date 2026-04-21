@@ -1,8 +1,8 @@
-using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 using Polly;
+using System.Net;
 using Yuzhu.Yarp.Swagger.Configuration;
 
 namespace Yuzhu.Yarp.Swagger.Resilience;
@@ -18,13 +18,13 @@ public static class SwaggerHttpClientExtensions
     /// </summary>
     public static IHttpClientBuilder AddSwaggerResilienceHandler(this IHttpClientBuilder builder)
     {
-        builder.AddResilienceHandler("swagger-pipeline", static (configure, context) =>
+        _ = builder.AddResilienceHandler("swagger-pipeline", static (configure, context) =>
         {
-            var options = context.ServiceProvider
+            SwaggerAggregationOptions options = context.ServiceProvider
                 .GetRequiredService<IOptionsMonitor<SwaggerAggregationOptions>>()
                 .CurrentValue;
 
-            configure
+            _ = configure
                 .AddRetry(new HttpRetryStrategyOptions
                 {
                     MaxRetryAttempts = options.MaxRetryAttempts,

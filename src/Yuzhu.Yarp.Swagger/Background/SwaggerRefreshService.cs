@@ -1,7 +1,7 @@
-using System.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Diagnostics;
 using Yuzhu.Yarp.Swagger.Configuration;
 using Yuzhu.Yarp.Swagger.Coordination;
 using Yuzhu.Yarp.Swagger.Telemetry;
@@ -39,7 +39,7 @@ public sealed class SwaggerRefreshService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var startupDelay = _options.CurrentValue.StartupDelay;
+        TimeSpan startupDelay = _options.CurrentValue.StartupDelay;
         _logger.LogInformation(
             "Swagger refresh service starting, waiting {Delay} for YARP initialization",
             startupDelay);
@@ -69,7 +69,7 @@ public sealed class SwaggerRefreshService : BackgroundService
                     configCts = _configChangeCts;
                 }
 
-                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
                     stoppingToken,
                     configCts.Token);
 
@@ -111,11 +111,11 @@ public sealed class SwaggerRefreshService : BackgroundService
 
     private async Task RefreshAllDocumentsAsync(CancellationToken cancellationToken)
     {
-        var stopwatch = Stopwatch.StartNew();
+        Stopwatch stopwatch = Stopwatch.StartNew();
 
-        using var activity = SwaggerTelemetry.ActivitySource.StartActivity("RefreshAllDocuments");
+        using Activity? activity = SwaggerTelemetry.ActivitySource.StartActivity("RefreshAllDocuments");
 
-        var result = await _documentCoordinator.RefreshAllDocumentsAsync(cancellationToken);
+        SwaggerRefreshResult result = await _documentCoordinator.RefreshAllDocumentsAsync(cancellationToken);
         if (result.EndpointCount == 0)
         {
             return;

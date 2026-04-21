@@ -14,16 +14,16 @@ public sealed class AggregatedSwaggerProviderTests
     [Fact]
     public async Task GetSwaggerAsync_WhenDocumentDoesNotExist_ThrowsUnknownSwaggerDocument()
     {
-        var knownEndpoint = CreateEndpoint("known-cluster", "known");
-        var coordinator = CreateCoordinator(
+        SwaggerEndpoint knownEndpoint = CreateEndpoint("known-cluster", "known");
+        SwaggerDocumentCoordinator coordinator = CreateCoordinator(
             new StubSwaggerEndpointProvider([knownEndpoint]),
             new StubSwaggerAggregator(static _ => Task.FromResult(CreateDocument("known"))));
 
-        var provider = new AggregatedSwaggerProvider(
+        AggregatedSwaggerProvider provider = new AggregatedSwaggerProvider(
             coordinator,
             NullLogger<AggregatedSwaggerProvider>.Instance);
 
-        var exception = await Assert.ThrowsAsync<UnknownSwaggerDocument>(
+        UnknownSwaggerDocument exception = await Assert.ThrowsAsync<UnknownSwaggerDocument>(
             () => provider.GetSwaggerAsync("missing"));
 
         Assert.Contains("missing", exception.Message, StringComparison.Ordinal);
@@ -33,16 +33,16 @@ public sealed class AggregatedSwaggerProviderTests
     [Fact]
     public async Task GetSwaggerAsync_WhenKnownDocumentCannotBeLoaded_ThrowsUnavailableException()
     {
-        var endpoint = CreateEndpoint("orders-cluster", "orders");
-        var coordinator = CreateCoordinator(
+        SwaggerEndpoint endpoint = CreateEndpoint("orders-cluster", "orders");
+        SwaggerDocumentCoordinator coordinator = CreateCoordinator(
             new StubSwaggerEndpointProvider([endpoint]),
             new StubSwaggerAggregator(static _ => throw new InvalidOperationException("boom")));
 
-        var provider = new AggregatedSwaggerProvider(
+        AggregatedSwaggerProvider provider = new AggregatedSwaggerProvider(
             coordinator,
             NullLogger<AggregatedSwaggerProvider>.Instance);
 
-        var exception = await Assert.ThrowsAsync<SwaggerDocumentUnavailableException>(
+        SwaggerDocumentUnavailableException exception = await Assert.ThrowsAsync<SwaggerDocumentUnavailableException>(
             () => provider.GetSwaggerAsync("orders"));
 
         Assert.Equal("orders", exception.DocumentName);
@@ -52,22 +52,22 @@ public sealed class AggregatedSwaggerProviderTests
     public async Task GetSwaggerAsync_WhenDocumentIsCached_ReturnsCachedDocument()
     {
         const string documentName = "cached";
-        var endpoint = CreateEndpoint("cached-cluster", documentName);
-        var store = new InMemoryAggregatedDocumentStore();
-        var cachedDocument = CreateDocument(documentName);
+        SwaggerEndpoint endpoint = CreateEndpoint("cached-cluster", documentName);
+        InMemoryAggregatedDocumentStore store = new InMemoryAggregatedDocumentStore();
+        OpenApiDocument cachedDocument = CreateDocument(documentName);
         await store.SetAsync(documentName, cachedDocument);
 
-        var coordinator = new SwaggerDocumentCoordinator(
+        SwaggerDocumentCoordinator coordinator = new SwaggerDocumentCoordinator(
             store,
             new StubSwaggerEndpointProvider([endpoint]),
             new StubSwaggerAggregator(static _ => Task.FromResult(CreateDocument("should-not-be-used"))),
             NullLogger<SwaggerDocumentCoordinator>.Instance);
 
-        var provider = new AggregatedSwaggerProvider(
+        AggregatedSwaggerProvider provider = new AggregatedSwaggerProvider(
             coordinator,
             NullLogger<AggregatedSwaggerProvider>.Instance);
 
-        var document = await provider.GetSwaggerAsync(documentName);
+        OpenApiDocument document = await provider.GetSwaggerAsync(documentName);
 
         Assert.Same(cachedDocument, document);
     }
@@ -103,7 +103,7 @@ public sealed class AggregatedSwaggerProviderTests
                 Title = title,
                 Version = "v1"
             },
-            Paths = new OpenApiPaths()
+            Paths = []
         };
     }
 
@@ -111,21 +111,13 @@ public sealed class AggregatedSwaggerProviderTests
     {
         public Task<OpenApiDocument> AggregateAsync(
             AggregationContext context,
-            CancellationToken cancellationToken = default)
-        {
-            return aggregateAsync(context);
-        }
+            CancellationToken cancellationToken = default) => aggregateAsync(context);
     }
 
     private sealed class StubSwaggerEndpointProvider(IReadOnlyList<SwaggerEndpoint> endpoints) : ISwaggerEndpointProvider
     {
         public IReadOnlyList<SwaggerEndpoint> GetEndpoints() => endpoints;
 
-        public IReadOnlyList<SwaggerEndpoint> GetEndpoints(string documentName)
-        {
-            return endpoints
-                .Where(endpoint => SwaggerEndpointDiscoveryHelper.MatchesDocumentName(endpoint, documentName))
-                .ToList();
-        }
+        public IReadOnlyList<SwaggerEndpoint> GetEndpoints(string documentName) => [.. endpoints.Where(endpoint => SwaggerEndpointDiscoveryHelper.MatchesDocumentName(endpoint, documentName))];
     }
 }
