@@ -76,7 +76,9 @@ public sealed class SwaggerAggregationBuilder
     /// </summary>
     public SwaggerAggregationBuilder Configure(Action<SwaggerAggregationOptions> configure)
     {
-        _services.Configure(configure);
+        ArgumentNullException.ThrowIfNull(configure);
+
+        _services.PostConfigure(configure);
         return this;
     }
 

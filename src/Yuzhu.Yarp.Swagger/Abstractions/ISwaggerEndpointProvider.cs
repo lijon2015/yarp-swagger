@@ -1,78 +1,68 @@
 namespace Yuzhu.Yarp.Swagger.Abstractions;
 
 /// <summary>
-/// 从 YARP 运行时状态发现 Swagger 端点
+/// Discovers Swagger endpoints for aggregation.
 /// </summary>
 public interface ISwaggerEndpointProvider
 {
     /// <summary>
-    /// 获取所有启用了 Swagger 的端点
+    /// Gets all enabled Swagger endpoints.
     /// </summary>
     IReadOnlyList<SwaggerEndpoint> GetEndpoints();
 
     /// <summary>
-    /// 获取指定文档名称的端点
+    /// Gets endpoints for a specific document name.
     /// </summary>
     IReadOnlyList<SwaggerEndpoint> GetEndpoints(string documentName);
 }
 
 /// <summary>
-/// Swagger 端点信息
+/// Swagger endpoint metadata.
 /// </summary>
 public sealed record SwaggerEndpoint
 {
     /// <summary>
-    /// Cluster ID
+    /// Cluster identifier.
     /// </summary>
     public required string ClusterId { get; init; }
 
     /// <summary>
-    /// 服务基础地址
+    /// Service base address.
     /// </summary>
     public required Uri BaseAddress { get; init; }
 
     /// <summary>
-    /// Swagger 文档路径
+    /// Relative Swagger document path.
     /// </summary>
     public required string SwaggerPath { get; init; }
 
     /// <summary>
-    /// 路径前缀
+    /// Optional path prefix applied during transformation.
     /// </summary>
     public string? PathPrefix { get; init; }
 
     /// <summary>
-    /// 路径过滤正则表达式
+    /// Optional path filter regex applied during transformation.
     /// </summary>
     public string? PathFilter { get; init; }
 
     /// <summary>
-    /// 访问令牌客户端名称
+    /// Optional OAuth client name used to fetch an access token.
     /// </summary>
     public string? AccessTokenClient { get; init; }
 
     /// <summary>
-    /// 是否只包含已发布的路径
-    /// </summary>
-    public bool OnlyPublishedPaths { get; init; }
-
-    /// <summary>
-    /// 是否作为元数据源（使用该服务的 Info）
+    /// Whether this endpoint provides the merged document metadata.
     /// </summary>
     public bool IsMetadataSource { get; init; }
 
     /// <summary>
-    /// 文档名称（用于分组）
+    /// Optional document group name.
     /// </summary>
     public string? DocumentName { get; init; }
 
     /// <summary>
-    /// 完整的 Swagger URL
+    /// Absolute Swagger document URL.
     /// </summary>
     public Uri SwaggerUrl => new(BaseAddress, SwaggerPath);
-
-    /// <summary>
-    /// HttpClient 名称
-    /// </summary>
-    internal string HttpClientName => $"swagger:{ClusterId}";
 }

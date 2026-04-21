@@ -6,7 +6,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
         <PackageId>Yuzhu.Yarp.Swagger</PackageId>
-        <Version>1.1.0</Version>
+        <Version>2.0.0</Version>
         <Authors>Yuzhu</Authors>
         <Description>Swagger aggregation for YARP (Yet Another Reverse Proxy). Automatically discovers and aggregates Swagger documents from backend services using YARP metadata.</Description>
         <PackageProjectUrl>https://github.com/lijon2015/yarp-swagger</PackageProjectUrl>
@@ -15,6 +15,12 @@
         <RepositoryUrl>https://github.com/lijon2015/yarp-swagger</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
     </PropertyGroup>
+
+    <ItemGroup>
+        <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+            <_Parameter1>Yuzhu.Yarp.Swagger.Tests</_Parameter1>
+        </AssemblyAttribute>
+    </ItemGroup>
 
     <ItemGroup>
         <PackageReference Include="Duende.AccessTokenManagement" Version="4.2.0" />

@@ -4,25 +4,25 @@ root = true
 # C# files
 [*.cs]
 
-# Here we set all microsoft's IDExxxx rule violations as compile errors
+# Here we set all microsoft's IDExxxx rule violations as compile warnings
 # https://learn.microsoft.com/en-us/dotnet/fundamentals/code-analysis/style-rules/
-dotnet_analyzer_diagnostic.category-Style.severity = error
+dotnet_analyzer_diagnostic.category-Style.severity = warning
 
 # Here we ignore some rule violdations that they are not really important for us
-dotnet_diagnostic.IDE0008.severity = silent # Explicit type, not var
-dotnet_diagnostic.IDE0010.severity = silent # missing cases to "case" switch expression
-dotnet_diagnostic.IDE0039.severity = silent # lambda vs local function
-dotnet_diagnostic.IDE0045.severity = silent # Use ternary for assignment, not ifs
-dotnet_diagnostic.IDE0046.severity = silent # Use ternary for returns, not ifs
-dotnet_diagnostic.IDE0055.severity = silent # Generic formatting errors: should be handled by csharpier
-dotnet_diagnostic.IDE0058.severity = silent # Expression value is never used
-dotnet_diagnostic.IDE0072.severity = silent # missing cases to "=>" switch expression
-dotnet_diagnostic.IDE0090.severity = silent # Use implicit new
-dotnet_diagnostic.IDE0270.severity = silent # Simplify null check
-dotnet_diagnostic.IDE0290.severity = silent # Use primary constructor (stylistic preference)
-dotnet_diagnostic.IDE0028.severity = silent # Use collection expression for empty (stylistic)
-dotnet_diagnostic.IDE0305.severity = silent # Use collection expression for fluent (stylistic)
-dotnet_diagnostic.IDE0052.severity = silent # Remove unread private member (often false positives with reflection)
+dotnet_diagnostic.IDE0008.severity = warning # Explicit type, not var
+dotnet_diagnostic.IDE0010.severity = warning # missing cases to "case" switch expression
+dotnet_diagnostic.IDE0039.severity = warning # lambda vs local function
+dotnet_diagnostic.IDE0045.severity = warning # Use ternary for assignment, not ifs
+dotnet_diagnostic.IDE0046.severity = warning # Use ternary for returns, not ifs
+dotnet_diagnostic.IDE0055.severity = warning # Generic formatting errors: should be handled by csharpier
+dotnet_diagnostic.IDE0058.severity = warning # Expression value is never used
+dotnet_diagnostic.IDE0072.severity = warning # missing cases to "=>" switch expression
+dotnet_diagnostic.IDE0090.severity = warning # Use implicit new
+dotnet_diagnostic.IDE0270.severity = warning # Simplify null check
+dotnet_diagnostic.IDE0290.severity = warning # Use primary constructor (stylistic preference)
+dotnet_diagnostic.IDE0028.severity = warning # Use collection expression for empty (stylistic)
+dotnet_diagnostic.IDE0305.severity = warning # Use collection expression for fluent (stylistic)
+dotnet_diagnostic.IDE0052.severity = warning # Remove unread private member (often false positives with reflection)
 # https://github.com/dotnet/aspnetcore/issues/47912
 dotnet_diagnostic.IDE0005.severity = none # Remove unnecessary using directives (using CS8019 instead)
 dotnet_diagnostic.CS8019.severity = error # Remove unnecessary using directives
@@ -104,19 +104,19 @@ dotnet_style_allow_statement_immediately_after_block_experimental = true
 #### C# Coding Conventions ####
 
 # var preferences
-csharp_style_var_elsewhere = false:silent
-csharp_style_var_for_built_in_types = false:silent
-csharp_style_var_when_type_is_apparent = false:silent
+csharp_style_var_elsewhere = false:warning
+csharp_style_var_for_built_in_types = false:warning
+csharp_style_var_when_type_is_apparent = false:warning
 
 # Expression-bodied members
-csharp_style_expression_bodied_accessors = true:silent
-csharp_style_expression_bodied_constructors = false:silent
-csharp_style_expression_bodied_indexers = true:silent
-csharp_style_expression_bodied_lambdas = true:silent
-csharp_style_expression_bodied_local_functions = false:silent
-csharp_style_expression_bodied_methods = when_on_single_line:none
-csharp_style_expression_bodied_operators = false:silent
-csharp_style_expression_bodied_properties = true:silent
+csharp_style_expression_bodied_accessors = true:warning
+csharp_style_expression_bodied_constructors = false:warning
+csharp_style_expression_bodied_indexers = true:warning
+csharp_style_expression_bodied_lambdas = true:warning
+csharp_style_expression_bodied_local_functions = false:warning
+csharp_style_expression_bodied_methods = when_on_single_line:warning
+csharp_style_expression_bodied_operators = false:warning
+csharp_style_expression_bodied_properties = true:warning
 
 # Pattern matching preferences
 csharp_style_pattern_matching_over_as_with_null_check = false
@@ -136,10 +136,10 @@ csharp_style_prefer_readonly_struct = true
 
 # Code-block preferences
 csharp_prefer_braces = when_multiline:error
-csharp_prefer_simple_using_statement = false:silent
-csharp_style_namespace_declarations = file_scoped:silent
-csharp_style_prefer_method_group_conversion = true:silent
-csharp_style_prefer_top_level_statements = true:silent
+csharp_prefer_simple_using_statement = false:warning
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_style_prefer_method_group_conversion = true:warning
+csharp_style_prefer_top_level_statements = true:warning
 
 # Expression-level preferences
 csharp_prefer_simple_default_expression = true
@@ -157,7 +157,7 @@ csharp_style_unused_value_assignment_preference = discard_variable
 csharp_style_unused_value_expression_statement_preference = discard_variable
 
 # 'using' directive preferences
-csharp_using_directive_placement = outside_namespace:silent
+csharp_using_directive_placement = outside_namespace:warning
 
 # New line preferences
 csharp_style_allow_blank_line_after_colon_in_constructor_initializer_experimental = true
@@ -277,8 +277,8 @@ indent_size = 4
 dotnet_style_coalesce_expression = true:suggestion
 dotnet_style_null_propagation = true:suggestion
 dotnet_style_prefer_is_null_check_over_reference_equality_method = true:suggestion
-dotnet_style_prefer_auto_properties = true:silent
+dotnet_style_prefer_auto_properties = true:warning
 dotnet_style_object_initializer = true:suggestion
 dotnet_style_collection_initializer = true:suggestion
 dotnet_style_prefer_simplified_boolean_expressions = true:suggestion
-dotnet_style_prefer_conditional_expression_over_assignment = true:silent
+dotnet_style_prefer_conditional_expression_over_assignment = true:warning

@@ -5,12 +5,8 @@ using Yuzhu.Yarp.Swagger.Abstractions;
 namespace Yuzhu.Yarp.Swagger.Merging;
 
 /// <summary>
-/// 默认的 Swagger 文档合并器
+/// Default swagger document merger.
 /// </summary>
-/// <remarks>
-/// 此合并器只负责将多个已转换的文档合并为一个。
-/// 路径前缀和过滤等转换操作由 ISwaggerDocumentTransformer 管道处理。
-/// </remarks>
 public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
 {
     private readonly ILogger<DefaultSwaggerDocumentMerger> _logger;
@@ -37,7 +33,7 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
 
         var failedServices = new List<string>();
         var securityRequirements = new List<OpenApiSecurityRequirement>();
-        var tags = new HashSet<OpenApiTag>();
+        var tagsByName = new Dictionary<string, OpenApiTag>(StringComparer.Ordinal);
 
         foreach (var source in sources)
         {
@@ -50,38 +46,45 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             var document = source.Document!;
             var endpoint = source.Endpoint;
 
-            // 如果是元数据源，使用其 Info
             if (endpoint.IsMetadataSource)
             {
                 resultDocument.Info = document.Info;
             }
 
-            // 合并组件
             MergeComponents(resultDocument.Components, document.Components, endpoint, _logger);
-
-            // 合并路径
             MergePaths(resultDocument.Paths, document.Paths, endpoint, _logger);
 
-            // 合并安全需求
             if (document.Security != null)
             {
                 securityRequirements.AddRange(document.Security);
             }
 
-            // 合并标签
             if (document.Tags != null)
             {
                 foreach (var tag in document.Tags)
                 {
-                    tags.Add(tag);
+                    if (string.IsNullOrWhiteSpace(tag.Name))
+                    {
+                        _logger.LogDebug(
+                            "Skipping unnamed tag from {ClusterId}",
+                            endpoint.ClusterId);
+                        continue;
+                    }
+
+                    if (!tagsByName.TryAdd(tag.Name, tag))
+                    {
+                        _logger.LogDebug(
+                            "Tag {TagName} from {ClusterId} already exists, keeping the first definition",
+                            tag.Name,
+                            endpoint.ClusterId);
+                    }
                 }
             }
         }
 
         resultDocument.Security = securityRequirements;
-        resultDocument.Tags = tags;
+        resultDocument.Tags = new HashSet<OpenApiTag>(tagsByName.Values);
 
-        // 添加失败服务警告
         if (failedServices.Count > 0 && options.IncludeFailedServicesWarning)
         {
             resultDocument.Info.Description =
@@ -96,9 +99,6 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
         return resultDocument;
     }
 
-    /// <summary>
-    /// 合并路径（路径前缀和过滤已由 Transformer 管道处理）
-    /// </summary>
     private static void MergePaths(
         OpenApiPaths targetPaths,
         OpenApiPaths? sourcePaths,
@@ -116,14 +116,12 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             {
                 logger.LogDebug(
                     "Path {Path} from {ClusterId} already exists, skipping",
-                    path.Key, endpoint.ClusterId);
+                    path.Key,
+                    endpoint.ClusterId);
             }
         }
     }
 
-    /// <summary>
-    /// 合并组件（使用 FirstWins 策略）
-    /// </summary>
     private static void MergeComponents(
         OpenApiComponents targetComponents,
         OpenApiComponents? sourceComponents,
@@ -135,7 +133,6 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             return;
         }
 
-        // Schemas
         MergeDictionary(
             targetComponents.Schemas ??= new Dictionary<string, IOpenApiSchema>(),
             sourceComponents.Schemas,
@@ -143,7 +140,6 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             "Schema",
             logger);
 
-        // SecuritySchemes
         MergeDictionary(
             targetComponents.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>(),
             sourceComponents.SecuritySchemes,
@@ -151,7 +147,6 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             "SecurityScheme",
             logger);
 
-        // Parameters
         MergeDictionary(
             targetComponents.Parameters ??= new Dictionary<string, IOpenApiParameter>(),
             sourceComponents.Parameters,
@@ -159,7 +154,6 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             "Parameter",
             logger);
 
-        // Responses
         MergeDictionary(
             targetComponents.Responses ??= new Dictionary<string, IOpenApiResponse>(),
             sourceComponents.Responses,
@@ -167,7 +161,6 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             "Response",
             logger);
 
-        // RequestBodies
         MergeDictionary(
             targetComponents.RequestBodies ??= new Dictionary<string, IOpenApiRequestBody>(),
             sourceComponents.RequestBodies,
@@ -175,7 +168,6 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             "RequestBody",
             logger);
 
-        // Headers
         MergeDictionary(
             targetComponents.Headers ??= new Dictionary<string, IOpenApiHeader>(),
             sourceComponents.Headers,
@@ -183,7 +175,6 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             "Header",
             logger);
 
-        // Examples
         MergeDictionary(
             targetComponents.Examples ??= new Dictionary<string, IOpenApiExample>(),
             sourceComponents.Examples,
@@ -191,7 +182,6 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             "Example",
             logger);
 
-        // Links
         MergeDictionary(
             targetComponents.Links ??= new Dictionary<string, IOpenApiLink>(),
             sourceComponents.Links,
@@ -199,7 +189,6 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             "Link",
             logger);
 
-        // Callbacks
         MergeDictionary(
             targetComponents.Callbacks ??= new Dictionary<string, IOpenApiCallback>(),
             sourceComponents.Callbacks,
@@ -207,7 +196,6 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             "Callback",
             logger);
 
-        // Extensions
         if (sourceComponents.Extensions != null)
         {
             targetComponents.Extensions ??= new Dictionary<string, IOpenApiExtension>();
@@ -218,9 +206,6 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
         }
     }
 
-    /// <summary>
-    /// 合并字典（使用 FirstWins 策略）
-    /// </summary>
     private static void MergeDictionary<T>(
         IDictionary<string, T> target,
         IDictionary<string, T>? source,
@@ -239,7 +224,9 @@ public sealed class DefaultSwaggerDocumentMerger : ISwaggerDocumentMerger
             {
                 logger.LogDebug(
                     "{ComponentType} conflict for {Key} from {ClusterId}. Ignored (First wins).",
-                    componentType, item.Key, clusterId);
+                    componentType,
+                    item.Key,
+                    clusterId);
             }
         }
     }

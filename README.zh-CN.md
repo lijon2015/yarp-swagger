@@ -8,6 +8,8 @@
 
 Swagger 文档聚合库，用于 YARP（Yet Another Reverse Proxy）。自动发现并聚合后端服务的 Swagger 文档。
 
+> `v2.0.0` 包含一次刻意的 API 收口。已移除：未使用的 `Swagger:OnlyPublishedPaths` 元数据键、`SwaggerEndpoint.OnlyPublishedPaths`、`IAggregatedDocumentStore.Exists(...)`，以及 `IAggregatedDocumentStore.Get(...)` 这类同步文档缓存读取能力。为了保持与 Swashbuckle 官方契约一致，`AggregatedSwaggerProvider` 仍同时暴露 `ISwaggerProvider` 与 `IAsyncSwaggerProvider`。
+
 ## 目录
 
 - [功能特性](#功能特性)
@@ -98,30 +100,38 @@ using Yuzhu.Yarp.Swagger.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. 添加 Swagger 服务
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
-// 2. 添加 YARP 反向代理和 Swagger 聚合
 var configuration = builder.Configuration.GetSection("ReverseProxy");
-builder.Services
+var reverseProxyBuilder = builder.Services
     .AddReverseProxy()
-    .LoadFromConfig(configuration)
-    .AddSwaggerAggregation();  // 添加这一行即可启用 Swagger 聚合
+    .LoadFromConfig(configuration);
+
+// 如果生产环境不需要 Swagger，建议只在 Development 中启用聚合
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen();
+
+    reverseProxyBuilder.AddSwaggerAggregation();
+}
 
 var app = builder.Build();
 
-// 3. 启用 Swagger UI
-app.UseSwagger();
-app.UseSwaggerUI(options =>
+// 2. 仅在 Development 中启用 Swagger UI
+if (app.Environment.IsDevelopment())
 {
-    options.ConfigureAggregatedEndpoints(app.Services);  // 配置聚合端点
-});
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.ConfigureAggregatedEndpoints(app.Services);  // 配置聚合端点
+    });
+}
 
 app.MapReverseProxy();
 
 app.Run();
 ```
+
+如果生产网关不对外暴露 Swagger，建议把 `AddSwaggerAggregation()` 也限制在 `Development` 中注册，这样生产环境就不会启动后台刷新服务和文档拉取链路。
 
 ### 第四步：运行并验证
 

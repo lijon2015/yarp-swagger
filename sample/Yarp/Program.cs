@@ -6,25 +6,29 @@ using Yarp.Transformations;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
-builder.Services.AddHybridCache();
-builder.Services.AddClientCredentialsTokenManagement()
-    .AddClient(ClientCredentialsClientName.Parse("Identity"), client =>
-    {
-        var identityConfig = builder.Configuration.GetSection("Identity").Get<IdentityConfig>()!;
-        client.TokenEndpoint = new Uri($"{identityConfig.Url}/connect/token");
-        client.ClientId = ClientId.Parse(identityConfig.ClientId);
-        client.ClientSecret = ClientSecret.Parse(identityConfig.ClientSecret);
-    });
-
 var configuration = builder.Configuration.GetSection("ReverseProxy");
-builder.Services
+var reverseProxyBuilder = builder.Services
     .AddReverseProxy()
     .LoadFromConfig(configuration)
-    .AddTransformFactory<HeaderTransformFactory>()
-    .AddSwaggerAggregation();
+    .AddTransformFactory<HeaderTransformFactory>();
+
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen();
+
+    builder.Services.AddHybridCache();
+    builder.Services.AddClientCredentialsTokenManagement()
+        .AddClient(ClientCredentialsClientName.Parse("Identity"), client =>
+        {
+            var identityConfig = builder.Configuration.GetSection("Identity").Get<IdentityConfig>()!;
+            client.TokenEndpoint = new Uri($"{identityConfig.Url}/connect/token");
+            client.ClientId = ClientId.Parse(identityConfig.ClientId);
+            client.ClientSecret = ClientSecret.Parse(identityConfig.ClientSecret);
+        });
+
+    reverseProxyBuilder.AddSwaggerAggregation();
+}
 
 var app = builder.Build();
 

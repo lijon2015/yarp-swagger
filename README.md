@@ -8,6 +8,8 @@
 
 Swagger document aggregation library for YARP (Yet Another Reverse Proxy). Automatically discovers and aggregates Swagger documents from backend services.
 
+> `v2.0.0` includes intentional API cleanup. Removed: the unused `Swagger:OnlyPublishedPaths` metadata key, `SwaggerEndpoint.OnlyPublishedPaths`, `IAggregatedDocumentStore.Exists(...)`, and synchronous document cache retrieval via `IAggregatedDocumentStore.Get(...)`. To stay aligned with Swashbuckle's official contract, `AggregatedSwaggerProvider` still exposes both `ISwaggerProvider` and `IAsyncSwaggerProvider`.
+
 ## Table of Contents
 
 - [Features](#features)
@@ -21,7 +23,7 @@ Swagger document aggregation library for YARP (Yet Another Reverse Proxy). Autom
 ## Features
 
 - **Background Refresh** - Asynchronous document loading with configurable refresh intervals
-- **YARP Metadata Discovery** - Configure Swagger endpoints via YARP cluster metadata (DRY principle)
+- **Hybrid Endpoint Discovery** - Prefer live YARP state and fall back to cluster configuration during startup
 - **OAuth2 Support** - Built-in support for client credentials flow via Duende.AccessTokenManagement
 - **Resilience** - Polly-based retry, circuit breaker, and timeout policies
 - **Telemetry** - OpenTelemetry metrics and distributed tracing
@@ -98,30 +100,38 @@ using Yuzhu.Yarp.Swagger.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Add Swagger services
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
-// 2. Add YARP reverse proxy and Swagger aggregation
 var configuration = builder.Configuration.GetSection("ReverseProxy");
-builder.Services
+var reverseProxyBuilder = builder.Services
     .AddReverseProxy()
-    .LoadFromConfig(configuration)
-    .AddSwaggerAggregation();  // Add this line to enable Swagger aggregation
+    .LoadFromConfig(configuration);
+
+// Only enable Swagger aggregation in Development when Swagger is not needed in production
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen();
+
+    reverseProxyBuilder.AddSwaggerAggregation();
+}
 
 var app = builder.Build();
 
-// 3. Enable Swagger UI
-app.UseSwagger();
-app.UseSwaggerUI(options =>
+// 2. Enable Swagger UI in Development
+if (app.Environment.IsDevelopment())
 {
-    options.ConfigureAggregatedEndpoints(app.Services);  // Configure aggregated endpoints
-});
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.ConfigureAggregatedEndpoints(app.Services);  // Configure aggregated endpoints
+    });
+}
 
 app.MapReverseProxy();
 
 app.Run();
 ```
+
+If your production gateway does not expose Swagger, prefer registering `AddSwaggerAggregation()` only in `Development` so the background refresh service and document-loading pipeline are not started in production.
 
 ### Step 4: Run and Verify
 
@@ -143,7 +153,6 @@ Configure Swagger discovery via YARP cluster metadata:
 | `Swagger:Path` | Path to Swagger JSON document | `/swagger/v1/swagger.json` |
 | `Swagger:Prefix` | Path prefix to add to all operations | (none) |
 | `Swagger:PathFilter` | Regex pattern to filter paths (max 500 chars) | (none) |
-| `Swagger:OnlyPublishedPaths` | Only include published paths | `false` |
 | `Swagger:IsMetadataSource` | Use this cluster's document info as metadata source | `false` |
 | `Swagger:AccessTokenClient` | OAuth2 client name for authentication | (none) |
 | `Swagger:DocumentName` | Document group name (defaults to ClusterId) | (cluster id) |
@@ -172,9 +181,6 @@ Configure via `SwaggerAggregation` section in `appsettings.json`:
 | `DefaultSwaggerPath` | Default Swagger path when metadata unspecified | `/swagger/v1/swagger.json` | max 200 chars |
 | `StartupDelay` | Initial delay before first refresh | `00:00:05` | - |
 | `MaxDocumentSizeBytes` | Maximum document size to prevent OOM | `10485760` (10MB) | 1KB - 100MB |
-| `MergeIntoSingleDocument` | Merge all documents into one | `false` | - |
-| `DocumentName` | Name for merged document | - | - |
-| `SchemaConflictStrategy` | Schema conflict resolution strategy | `FirstWins` | - |
 
 ## Multi-Service Configuration
 
@@ -294,7 +300,7 @@ builder.Services
 
 ### Custom Endpoint Provider
 
-Replace the default configuration-based endpoint discovery:
+Replace the default hybrid endpoint discovery:
 
 ```csharp
 builder.Services
@@ -372,7 +378,7 @@ The library emits OpenTelemetry metrics and traces under the source name `Yarp.S
 ### Traces
 
 - `LoadSwaggerDocument` - Activity for each document load operation
-- `AggregateSwaggerDocuments` - Activity for the aggregation process
+- `AggregateDocuments` - Activity for the aggregation process
 
 ### Enable Telemetry
 
@@ -488,7 +494,7 @@ src/Yuzhu.Yarp.Swagger/
 ├── Adapters/Swashbuckle/   # Swashbuckle integration (AggregatedSwaggerProvider)
 ├── Background/             # Background refresh service (SwaggerRefreshService, SwaggerAggregator)
 ├── Configuration/          # Options and builder (SwaggerAggregationOptions, MetadataKeys)
-├── Discovery/              # Endpoint discovery (ConfigBasedSwaggerEndpointProvider)
+├── Discovery/              # Endpoint discovery (Hybrid/YARP state + configuration fallback)
 ├── Extensions/             # Service registration (AddSwaggerAggregation)
 ├── Loading/                # HTTP document loader with resilience
 ├── Merging/                # Document merger (paths, components, tags)

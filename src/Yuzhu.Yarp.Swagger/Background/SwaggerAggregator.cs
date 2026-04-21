@@ -8,13 +8,13 @@ using Yuzhu.Yarp.Swagger.Telemetry;
 namespace Yuzhu.Yarp.Swagger.Background;
 
 /// <summary>
-/// Swagger 文档聚合器实现
+/// Swagger document aggregation service.
 /// </summary>
 public sealed class SwaggerAggregator : ISwaggerAggregator
 {
     private readonly ISwaggerDocumentLoader _loader;
     private readonly ISwaggerDocumentMerger _merger;
-    private readonly IEnumerable<ISwaggerDocumentTransformer> _transformers;
+    private readonly IReadOnlyList<ISwaggerDocumentTransformer> _transformers;
     private readonly IOptionsMonitor<SwaggerAggregationOptions> _options;
     private readonly ILogger<SwaggerAggregator> _logger;
 
@@ -42,18 +42,26 @@ public sealed class SwaggerAggregator : ISwaggerAggregator
 
         var options = _options.CurrentValue;
 
-        // 创建聚合超时的取消令牌
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(options.AggregationTimeout);
         var aggregationToken = cts.Token;
 
         try
         {
-            // 并行加载所有文档
-            var loadTasks = context.Endpoints.Select(endpoint =>
-                LoadAndTransformAsync(endpoint, aggregationToken));
+            var loadResults = new SwaggerLoadResult[context.Endpoints.Count];
+            var indexedEndpoints = context.Endpoints.Select((endpoint, index) => (endpoint, index));
 
-            var loadResults = await Task.WhenAll(loadTasks);
+            await Parallel.ForEachAsync(
+                indexedEndpoints,
+                new ParallelOptions
+                {
+                    CancellationToken = aggregationToken,
+                    MaxDegreeOfParallelism = options.MaxParallelism
+                },
+                async (item, ct) =>
+                {
+                    loadResults[item.index] = await LoadAndTransformAsync(item.endpoint, ct);
+                });
 
             _logger.LogDebug(
                 "Loaded {SuccessCount}/{TotalCount} documents for '{DocumentName}'",
@@ -61,16 +69,14 @@ public sealed class SwaggerAggregator : ISwaggerAggregator
                 loadResults.Length,
                 context.DocumentName);
 
-            // 合并文档
-            var mergedDocument = _merger.Merge(loadResults, context.MergeOptions);
-
-            return mergedDocument;
+            return _merger.Merge(loadResults, context.MergeOptions);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning(
                 "Aggregation timeout for '{DocumentName}' after {Timeout}",
-                context.DocumentName, options.AggregationTimeout);
+                context.DocumentName,
+                options.AggregationTimeout);
 
             SwaggerTelemetry.LoadFailureCounter.Add(1,
                 new KeyValuePair<string, object?>("document.name", context.DocumentName),
@@ -85,7 +91,6 @@ public sealed class SwaggerAggregator : ISwaggerAggregator
         SwaggerEndpoint endpoint,
         CancellationToken cancellationToken)
     {
-        // 加载文档
         var loadResult = await _loader.LoadAsync(endpoint, cancellationToken);
 
         if (!loadResult.IsSuccess || loadResult.Document == null)
@@ -93,7 +98,6 @@ public sealed class SwaggerAggregator : ISwaggerAggregator
             return loadResult;
         }
 
-        // 应用转换器
         var document = loadResult.Document;
         var transformContext = new TransformContext
         {
@@ -109,9 +113,11 @@ public sealed class SwaggerAggregator : ISwaggerAggregator
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex,
+                _logger.LogWarning(
+                    ex,
                     "Transformer {TransformerType} failed for {ClusterId}",
-                    transformer.GetType().Name, endpoint.ClusterId);
+                    transformer.GetType().Name,
+                    endpoint.ClusterId);
             }
         }
 
