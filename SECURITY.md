@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you have discovered a vulnerability in this project or have information about a guaranteed security risk, please contact us at andreytreyt@hotmail.com.
+If you have discovered a vulnerability in this project or have information about a guaranteed security risk, please [open a private security advisory](https://github.com/lijon2015/yarp-swagger/security/advisories/new) instead of filing a public issue.
 
 ## Updating
 

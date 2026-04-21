@@ -139,7 +139,7 @@ If your production gateway does not expose Swagger, prefer registering `AddSwagg
 2. Start the YARP gateway
 3. Visit `https://localhost:<port>/swagger` to view the aggregated Swagger UI
 
-![Swagger UI Screenshot](https://raw.githubusercontent.com/andreytreyt/yarp-swagger/main/README.png)
+![Swagger UI Screenshot](https://raw.githubusercontent.com/lijon2015/yarp-swagger/main/README.png)
 
 ## Configuration
 
