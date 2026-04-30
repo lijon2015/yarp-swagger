@@ -401,7 +401,7 @@ FodyWeavers.xsd
 # MacOS
 .DS_Store
 
-# Claude Code
+# Local tool config
 .claude/
 
 # Duende IdentityServer runtime-generated signing keys (contain private keys)
