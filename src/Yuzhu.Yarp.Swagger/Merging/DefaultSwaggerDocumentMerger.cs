@@ -5,222 +5,160 @@ using Yuzhu.Yarp.Swagger.Abstractions;
 namespace Yuzhu.Yarp.Swagger.Merging;
 
 /// <summary>
-/// Default swagger document merger.
+/// Default merger. The first endpoint flagged <see cref="SwaggerEndpoint.IsMetadataSource"/>
+/// wins for <see cref="OpenApiDocument.Info"/>; otherwise the merged document falls back to
+/// a generic title using the document name. Paths and components merge first-wins.
 /// </summary>
 public sealed class DefaultSwaggerDocumentMerger(ILogger<DefaultSwaggerDocumentMerger> logger) : ISwaggerDocumentMerger
 {
     private readonly ILogger<DefaultSwaggerDocumentMerger> _logger = logger;
 
     public OpenApiDocument Merge(
-        IEnumerable<SwaggerLoadResult> sources,
-        MergeOptions options)
+        string documentName,
+        IReadOnlyList<SwaggerLoadResult> sources,
+        SwaggerMergeOptions options)
     {
-        OpenApiDocument resultDocument = new OpenApiDocument
+        OpenApiDocument result = new()
         {
             Info = new OpenApiInfo
             {
-                Title = "Aggregated API",
-                Version = "1.0.0"
+                Title = documentName,
+                Version = "1.0.0",
             },
             Paths = [],
-            Components = new OpenApiComponents()
+            Components = new OpenApiComponents(),
         };
 
-        List<string> failedServices = [];
-        List<OpenApiSecurityRequirement> securityRequirements = [];
-        Dictionary<string, OpenApiTag> tagsByName = new Dictionary<string, OpenApiTag>(StringComparer.Ordinal);
+        List<string> failures = [];
+        List<OpenApiSecurityRequirement> security = [];
+        Dictionary<string, OpenApiTag> tagsByName = new(StringComparer.Ordinal);
+        bool metadataSourceApplied = false;
 
         foreach (SwaggerLoadResult source in sources)
         {
-            if (!source.IsSuccess)
+            if (!source.IsSuccess || source.Document is null)
             {
-                failedServices.Add($"{source.Endpoint.ClusterId} ({source.ErrorMessage})");
+                failures.Add($"{source.Endpoint.ClusterId} ({source.ErrorMessage ?? "unknown"})");
                 continue;
             }
 
-            OpenApiDocument document = source.Document!;
+            OpenApiDocument document = source.Document;
             SwaggerEndpoint endpoint = source.Endpoint;
 
-            if (endpoint.IsMetadataSource)
+            if (!metadataSourceApplied && endpoint.IsMetadataSource && document.Info is not null)
             {
-                resultDocument.Info = document.Info;
+                result.Info = document.Info;
+                metadataSourceApplied = true;
             }
 
-            MergeComponents(resultDocument.Components, document.Components, endpoint, _logger);
-            MergePaths(resultDocument.Paths, document.Paths, endpoint, _logger);
+            MergeComponents(result.Components, document.Components, endpoint.ClusterId);
+            MergePaths(result.Paths, document.Paths, endpoint.ClusterId);
 
-            if (document.Security != null)
+            if (document.Security is { Count: > 0 })
             {
-                securityRequirements.AddRange(document.Security);
+                security.AddRange(document.Security);
             }
 
-            if (document.Tags != null)
+            if (document.Tags is not null)
             {
                 foreach (OpenApiTag tag in document.Tags)
                 {
                     if (string.IsNullOrWhiteSpace(tag.Name))
                     {
-                        _logger.LogDebug(
-                            "Skipping unnamed tag from {ClusterId}",
-                            endpoint.ClusterId);
                         continue;
                     }
 
-                    if (!tagsByName.TryAdd(tag.Name, tag))
-                    {
-                        _logger.LogDebug(
-                            "Tag {TagName} from {ClusterId} already exists, keeping the first definition",
-                            tag.Name,
-                            endpoint.ClusterId);
-                    }
+                    _ = tagsByName.TryAdd(tag.Name, tag);
                 }
             }
         }
 
-        resultDocument.Security = securityRequirements;
-        resultDocument.Tags = new HashSet<OpenApiTag>(tagsByName.Values);
+        result.Security = security;
+        result.Tags = new HashSet<OpenApiTag>(tagsByName.Values);
 
-        if (failedServices.Count > 0 && options.IncludeFailedServicesWarning)
+        if (options.IncludeFailedServicesWarning && failures.Count > 0)
         {
-            resultDocument.Info.Description =
-                (resultDocument.Info.Description ?? "") +
-                $"\n\n**Warning**: Failed to load Swagger for: {string.Join(", ", failedServices)}";
+            string suffix = $"\n\n**Warning**: failed to load Swagger for: {string.Join(", ", failures)}";
+            result.Info.Description = (result.Info.Description ?? string.Empty) + suffix;
+        }
 
+        if (failures.Count > 0)
+        {
             _logger.LogWarning(
-                "Aggregation completed with failures: {Services}",
-                string.Join(", ", failedServices));
+                "Aggregation of '{DocumentName}' completed with {FailedCount} failure(s): {Services}",
+                documentName,
+                failures.Count,
+                string.Join(", ", failures));
         }
 
-        return resultDocument;
+        return result;
     }
 
-    private static void MergePaths(
-        OpenApiPaths targetPaths,
-        OpenApiPaths? sourcePaths,
-        SwaggerEndpoint endpoint,
-        ILogger logger)
+    private void MergePaths(OpenApiPaths target, OpenApiPaths? source, string clusterId)
     {
-        if (sourcePaths == null)
+        if (source is null)
         {
             return;
         }
 
-        foreach (KeyValuePair<string, IOpenApiPathItem> path in sourcePaths)
+        foreach (KeyValuePair<string, IOpenApiPathItem> entry in source)
         {
-            if (!targetPaths.TryAdd(path.Key, (OpenApiPathItem)path.Value))
+            if (!target.TryAdd(entry.Key, (OpenApiPathItem)entry.Value))
             {
-                logger.LogDebug(
-                    "Path {Path} from {ClusterId} already exists, skipping",
-                    path.Key,
-                    endpoint.ClusterId);
+                _logger.LogDebug(
+                    "Path conflict on '{Path}' from {ClusterId}; keeping first definition",
+                    entry.Key,
+                    clusterId);
             }
         }
     }
 
-    private static void MergeComponents(
-        OpenApiComponents targetComponents,
-        OpenApiComponents? sourceComponents,
-        SwaggerEndpoint endpoint,
-        ILogger logger)
+    private void MergeComponents(OpenApiComponents target, OpenApiComponents? source, string clusterId)
     {
-        if (sourceComponents == null)
+        if (source is null)
         {
             return;
         }
 
-        MergeDictionary(
-            targetComponents.Schemas ??= new Dictionary<string, IOpenApiSchema>(),
-            sourceComponents.Schemas,
-            endpoint.ClusterId,
-            "Schema",
-            logger);
+        MergeDictionary(target.Schemas ??= new Dictionary<string, IOpenApiSchema>(), source.Schemas, clusterId, "Schema");
+        MergeDictionary(target.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>(), source.SecuritySchemes, clusterId, "SecurityScheme");
+        MergeDictionary(target.Parameters ??= new Dictionary<string, IOpenApiParameter>(), source.Parameters, clusterId, "Parameter");
+        MergeDictionary(target.Responses ??= new Dictionary<string, IOpenApiResponse>(), source.Responses, clusterId, "Response");
+        MergeDictionary(target.RequestBodies ??= new Dictionary<string, IOpenApiRequestBody>(), source.RequestBodies, clusterId, "RequestBody");
+        MergeDictionary(target.Headers ??= new Dictionary<string, IOpenApiHeader>(), source.Headers, clusterId, "Header");
+        MergeDictionary(target.Examples ??= new Dictionary<string, IOpenApiExample>(), source.Examples, clusterId, "Example");
+        MergeDictionary(target.Links ??= new Dictionary<string, IOpenApiLink>(), source.Links, clusterId, "Link");
+        MergeDictionary(target.Callbacks ??= new Dictionary<string, IOpenApiCallback>(), source.Callbacks, clusterId, "Callback");
 
-        MergeDictionary(
-            targetComponents.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>(),
-            sourceComponents.SecuritySchemes,
-            endpoint.ClusterId,
-            "SecurityScheme",
-            logger);
-
-        MergeDictionary(
-            targetComponents.Parameters ??= new Dictionary<string, IOpenApiParameter>(),
-            sourceComponents.Parameters,
-            endpoint.ClusterId,
-            "Parameter",
-            logger);
-
-        MergeDictionary(
-            targetComponents.Responses ??= new Dictionary<string, IOpenApiResponse>(),
-            sourceComponents.Responses,
-            endpoint.ClusterId,
-            "Response",
-            logger);
-
-        MergeDictionary(
-            targetComponents.RequestBodies ??= new Dictionary<string, IOpenApiRequestBody>(),
-            sourceComponents.RequestBodies,
-            endpoint.ClusterId,
-            "RequestBody",
-            logger);
-
-        MergeDictionary(
-            targetComponents.Headers ??= new Dictionary<string, IOpenApiHeader>(),
-            sourceComponents.Headers,
-            endpoint.ClusterId,
-            "Header",
-            logger);
-
-        MergeDictionary(
-            targetComponents.Examples ??= new Dictionary<string, IOpenApiExample>(),
-            sourceComponents.Examples,
-            endpoint.ClusterId,
-            "Example",
-            logger);
-
-        MergeDictionary(
-            targetComponents.Links ??= new Dictionary<string, IOpenApiLink>(),
-            sourceComponents.Links,
-            endpoint.ClusterId,
-            "Link",
-            logger);
-
-        MergeDictionary(
-            targetComponents.Callbacks ??= new Dictionary<string, IOpenApiCallback>(),
-            sourceComponents.Callbacks,
-            endpoint.ClusterId,
-            "Callback",
-            logger);
-
-        if (sourceComponents.Extensions != null)
+        if (source.Extensions is not null)
         {
-            targetComponents.Extensions ??= new Dictionary<string, IOpenApiExtension>();
-            foreach (KeyValuePair<string, IOpenApiExtension> ext in sourceComponents.Extensions)
+            target.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+            foreach (KeyValuePair<string, IOpenApiExtension> entry in source.Extensions)
             {
-                targetComponents.Extensions[ext.Key] = ext.Value;
+                target.Extensions[entry.Key] = entry.Value;
             }
         }
     }
 
-    private static void MergeDictionary<T>(
+    private void MergeDictionary<T>(
         IDictionary<string, T> target,
         IDictionary<string, T>? source,
         string clusterId,
-        string componentType,
-        ILogger logger)
+        string componentType)
     {
-        if (source == null)
+        if (source is null)
         {
             return;
         }
 
-        foreach (KeyValuePair<string, T> item in source)
+        foreach (KeyValuePair<string, T> entry in source)
         {
-            if (!target.TryAdd(item.Key, item.Value))
+            if (!target.TryAdd(entry.Key, entry.Value))
             {
-                logger.LogDebug(
-                    "{ComponentType} conflict for {Key} from {ClusterId}. Ignored (First wins).",
+                _logger.LogDebug(
+                    "{ComponentType} conflict on '{Key}' from {ClusterId}; keeping first definition",
                     componentType,
-                    item.Key,
+                    entry.Key,
                     clusterId);
             }
         }

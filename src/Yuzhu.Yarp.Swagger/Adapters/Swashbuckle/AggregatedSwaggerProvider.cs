@@ -7,34 +7,38 @@ using Yuzhu.Yarp.Swagger.Telemetry;
 namespace Yuzhu.Yarp.Swagger.Adapters.Swashbuckle;
 
 /// <summary>
-/// Serves aggregated Swagger documents through Swashbuckle.
+/// Adapts <see cref="SwaggerDocumentCoordinator"/> to Swashbuckle's
+/// <see cref="ISwaggerProvider"/> / <see cref="IAsyncSwaggerProvider"/> contracts. Used by
+/// the standard <c>UseSwagger()</c> middleware as a fallback; the library's own
+/// <c>UseSwaggerAggregationDocuments()</c> middleware exposes the same documents with
+/// stronger 200/404/503 semantics.
 /// </summary>
 public sealed class AggregatedSwaggerProvider(
-    SwaggerDocumentCoordinator documentCoordinator,
+    SwaggerDocumentCoordinator coordinator,
     ILogger<AggregatedSwaggerProvider> logger) : IAsyncSwaggerProvider, ISwaggerProvider
 {
-    private readonly SwaggerDocumentCoordinator _documentCoordinator = documentCoordinator;
+    private readonly SwaggerDocumentCoordinator _coordinator = coordinator;
     private readonly ILogger<AggregatedSwaggerProvider> _logger = logger;
 
-    public Task<OpenApiDocument> GetSwaggerAsync(
+    public async Task<OpenApiDocument> GetSwaggerAsync(
         string documentName,
         string? host = null,
-        string? basePath = null) => GetSwaggerCoreAsync(documentName);
+        string? basePath = null) =>
+        await ResolveAsync(documentName);
 
+    // Swashbuckle middleware still requires the synchronous contract in DI; bridge here
+    // rather than block on the async path inside the request pipeline.
     public OpenApiDocument GetSwagger(
         string documentName,
         string? host = null,
         string? basePath = null) =>
-        // Swashbuckle's middleware still requires ISwaggerProvider in DI.
-        GetSwaggerCoreAsync(documentName).GetAwaiter().GetResult();
+        ResolveAsync(documentName).GetAwaiter().GetResult();
 
-    public IReadOnlyList<string> GetDocumentNames() => _documentCoordinator.GetDocumentNames();
-
-    private async Task<OpenApiDocument> GetSwaggerCoreAsync(string documentName)
+    private async Task<OpenApiDocument> ResolveAsync(string documentName)
     {
-        SwaggerDocumentResolution resolution = await _documentCoordinator.ResolveDocumentAsync(documentName);
+        SwaggerDocumentResolution resolution = await _coordinator.ResolveDocumentAsync(documentName);
 
-        if (resolution.Document != null)
+        if (resolution.Document is not null)
         {
             if (resolution.FromCache)
             {
@@ -45,22 +49,21 @@ public sealed class AggregatedSwaggerProvider(
             return resolution.Document;
         }
 
-        if (resolution.EndpointFound)
+        if (!resolution.EndpointFound)
         {
-            _logger.LogError(
-                "Document '{DocumentName}' is known but could not be loaded",
-                documentName);
-
-            throw new SwaggerDocumentUnavailableException(documentName);
+            IReadOnlyList<string> known = await _coordinator.GetDocumentNamesAsync();
+            _logger.LogWarning(
+                "Document '{DocumentName}' is unknown. Known documents: {KnownDocuments}",
+                documentName,
+                known.Count == 0 ? "(none)" : string.Join(", ", known));
+            throw new UnknownSwaggerDocument(documentName, known);
         }
 
-        IReadOnlyList<string> knownDocuments = _documentCoordinator.GetDocumentNames();
-
-        _logger.LogWarning(
-            "Document '{DocumentName}' not found. Known documents: {KnownDocuments}",
+        _logger.LogError(
+            "Document '{DocumentName}' is known but could not be loaded: {Reason}",
             documentName,
-            knownDocuments.Count == 0 ? "(none)" : string.Join(", ", knownDocuments));
+            resolution.FailureReason ?? "unknown");
 
-        throw new UnknownSwaggerDocument(documentName, knownDocuments);
+        throw new SwaggerDocumentUnavailableException(documentName, resolution.FailureReason);
     }
 }

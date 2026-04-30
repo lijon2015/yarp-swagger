@@ -3,14 +3,28 @@ using Microsoft.OpenApi;
 namespace Yuzhu.Yarp.Swagger.Abstractions;
 
 /// <summary>
-/// 负责将多个 Swagger 文档合并为一个
+/// Merges per-endpoint load results into a single OpenAPI document.
 /// </summary>
 public interface ISwaggerDocumentMerger
 {
     /// <summary>
-    /// 合并多个 Swagger 文档
+    /// Merge <paramref name="sources"/> into a single OpenAPI document.
     /// </summary>
     OpenApiDocument Merge(
-        IEnumerable<SwaggerLoadResult> sources,
-        MergeOptions options);
+        string documentName,
+        IReadOnlyList<SwaggerLoadResult> sources,
+        SwaggerMergeOptions options);
+}
+
+/// <summary>
+/// Per-merge tunables.
+/// </summary>
+public sealed record SwaggerMergeOptions
+{
+    /// <summary>
+    /// When <c>true</c> a warning footer listing failed services is appended to the merged
+    /// document description. Off by default - aggregator output should describe the merged
+    /// API, not the merge process.
+    /// </summary>
+    public bool IncludeFailedServicesWarning { get; init; }
 }

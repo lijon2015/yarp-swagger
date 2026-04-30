@@ -4,71 +4,62 @@ using System.Diagnostics.Metrics;
 namespace Yuzhu.Yarp.Swagger.Telemetry;
 
 /// <summary>
-/// Swagger 聚合遥测
+/// Activity source, meter, and signals exposed by the Swagger aggregator. Tag names follow
+/// the naming convention from the long-term plan: <c>cluster.id</c>, <c>document.name</c>,
+/// <c>destination.address</c>, <c>swagger.path</c>, <c>http.status_code</c>,
+/// <c>failure.stage</c>, <c>failure.reason</c>, <c>from.cache</c>.
 /// </summary>
 public static class SwaggerTelemetry
 {
-    /// <summary>
-    /// 服务名称
-    /// </summary>
-    public const string ServiceName = "Yarp.Swagger.Aggregation";
+    /// <summary>Activity / meter source name.</summary>
+    public const string ServiceName = "Yuzhu.Yarp.Swagger";
 
-    /// <summary>
-    /// 版本
-    /// </summary>
-    public const string Version = "2.0.0";
+    /// <summary>Telemetry version. Bumped with the package major version.</summary>
+    public const string Version = "3.0.0";
 
-    /// <summary>
-    /// Activity 源
-    /// </summary>
+    /// <summary>Activity source for distributed tracing.</summary>
     public static readonly ActivitySource ActivitySource = new(ServiceName, Version);
 
     private static readonly Meter Meter = new(ServiceName, Version);
 
-    /// <summary>
-    /// 刷新计数器
-    /// </summary>
+    /// <summary>Counter incremented when a refresh pass completes.</summary>
     public static readonly Counter<long> RefreshCounter =
         Meter.CreateCounter<long>(
             "swagger.refresh.count",
             description: "Number of swagger refresh operations");
 
-    /// <summary>
-    /// 加载成功计数器
-    /// </summary>
+    /// <summary>Counter incremented when a cluster is skipped during discovery.</summary>
+    public static readonly Counter<long> DiscoverySkippedCounter =
+        Meter.CreateCounter<long>(
+            "swagger.discovery.skipped",
+            description: "Number of clusters skipped during discovery");
+
+    /// <summary>Counter incremented when a single document load succeeds.</summary>
     public static readonly Counter<long> LoadSuccessCounter =
         Meter.CreateCounter<long>(
             "swagger.load.success",
             description: "Number of successful swagger document loads");
 
-    /// <summary>
-    /// 加载失败计数器
-    /// </summary>
+    /// <summary>Counter incremented when a single document load fails.</summary>
     public static readonly Counter<long> LoadFailureCounter =
         Meter.CreateCounter<long>(
             "swagger.load.failure",
             description: "Number of failed swagger document loads");
 
-    /// <summary>
-    /// 缓存命中计数器
-    /// </summary>
+    /// <summary>Counter incremented when a cached document is served.</summary>
     public static readonly Counter<long> CacheHitCounter =
         Meter.CreateCounter<long>(
             "swagger.cache.hit",
             description: "Number of cache hits when serving swagger documents");
 
-    /// <summary>
-    /// 加载耗时直方图
-    /// </summary>
+    /// <summary>Histogram of single-document load duration.</summary>
     public static readonly Histogram<double> LoadDuration =
         Meter.CreateHistogram<double>(
             "swagger.load.duration",
             unit: "ms",
             description: "Duration of swagger document load operations");
 
-    /// <summary>
-    /// 刷新耗时直方图
-    /// </summary>
+    /// <summary>Histogram of full refresh-pass duration.</summary>
     public static readonly Histogram<double> RefreshDuration =
         Meter.CreateHistogram<double>(
             "swagger.refresh.duration",
@@ -77,17 +68,13 @@ public static class SwaggerTelemetry
 
     private static int _endpointCount;
 
-    /// <summary>
-    /// 端点数量仪表
-    /// </summary>
+    /// <summary>Observable gauge reporting the discovered endpoint count.</summary>
     public static readonly ObservableGauge<int> EndpointCount =
         Meter.CreateObservableGauge(
             "swagger.endpoints.count",
             () => _endpointCount,
-            description: "Number of swagger endpoints discovered");
+            description: "Number of swagger endpoints discovered in the last refresh");
 
-    /// <summary>
-    /// 设置端点数量
-    /// </summary>
+    /// <summary>Update the endpoint-count gauge.</summary>
     public static void SetEndpointCount(int count) => _endpointCount = count;
 }

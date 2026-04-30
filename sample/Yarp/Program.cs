@@ -34,8 +34,13 @@ WebApplication app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
+    // Library-owned middleware: 200/404/503 semantics for /swagger/{document}/swagger.json.
+    // Must run before UseSwagger so its responses take precedence over Swashbuckle's
+    // default exception handling.
+    _ = app.UseSwaggerAggregationDocuments();
     _ = app.UseSwagger();
-    _ = app.UseSwaggerUI(options => options.ConfigureAggregatedEndpoints(app.Services));
+    _ = app.UseSwaggerUI(options =>
+        options.ConfigureAggregatedEndpoints(app.Services));
 }
 
 app.UseHttpsRedirection();

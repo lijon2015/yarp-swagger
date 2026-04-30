@@ -6,566 +6,376 @@
 
 [中文文档](README.zh-CN.md) | English
 
-Swagger document aggregation library for YARP (Yet Another Reverse Proxy). Automatically discovers and aggregates Swagger documents from backend services.
+Swagger / OpenAPI aggregation for YARP. Discovers backend Swagger endpoints
+from YARP runtime state and configuration through pluggable sources and
+address resolvers, aggregates documents with explicit `200` / `404` / `503`
+semantics, and refreshes on YARP config changes.
 
-> `v2.0.0` includes intentional API cleanup. Removed: the unused `Swagger:OnlyPublishedPaths` metadata key, `SwaggerEndpoint.OnlyPublishedPaths`, `IAggregatedDocumentStore.Exists(...)`, and synchronous document cache retrieval via `IAggregatedDocumentStore.Get(...)`. To stay aligned with Swashbuckle's official contract, `AggregatedSwaggerProvider` still exposes both `ISwaggerProvider` and `IAsyncSwaggerProvider`.
-
-## Table of Contents
+## Contents
 
 - [Features](#features)
 - [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
+- [Quick start](#quick-start)
 - [Configuration](#configuration)
-- [Advanced Configuration](#advanced-configuration)
-- [Troubleshooting](#troubleshooting)
+- [HTTP semantics](#http-semantics)
 - [Architecture](#architecture)
+- [Extension points](#extension-points)
+- [Diagnostics and observability](#diagnostics-and-observability)
+- [OpenAPI version compatibility](#openapi-version-compatibility)
+- [Troubleshooting](#troubleshooting)
 
 ## Features
 
-- **Background Refresh** - Asynchronous document loading with configurable refresh intervals
-- **Hybrid Endpoint Discovery** - Prefer live YARP state and fall back to cluster configuration during startup
-- **OAuth2 Support** - Built-in support for client credentials flow via Duende.AccessTokenManagement
-- **Resilience** - Polly-based retry, circuit breaker, and timeout policies
-- **Telemetry** - OpenTelemetry metrics and distributed tracing
-- **Path Filtering** - Regex-based path filtering
-- **Document Grouping** - Group multiple services into separate Swagger documents
+- **Discovery pipeline** — `ISwaggerEndpointSource` + `ISwaggerEndpointAddressResolver` +
+  `ISwaggerMetadataAccessor` with structured per-cluster diagnostics.
+- **Standard YARP coverage out of the box** — runtime cluster state and static
+  configuration are both supported as default sources.
+- **Event-driven refresh** — refreshes fire on YARP config change tokens,
+  options changes, and a periodic timer.
+- **Strict UI semantics** — Swagger UI advertises only documents that the
+  discovery pipeline actually found; no fake `/swagger/v1/swagger.json`.
+- **Library-owned `/swagger/{name}/swagger.json` middleware** — explicit 200,
+  404, and 503 responses instead of opaque 500s.
+- **OAuth2** — client-credentials access tokens via `Duende.AccessTokenManagement`.
+- **Resilience** — Polly retry / per-attempt timeout / circuit breaker.
+- **Telemetry** — OpenTelemetry metrics and tracing with documented tag names.
 
 ## Prerequisites
 
-Before using this library, ensure you have:
-
 | Requirement | Version |
 |-------------|---------|
-| .NET | 10.0 or higher |
-| YARP | 2.3.0 or higher |
-| Swashbuckle.AspNetCore | 10.1.0 or higher |
+| .NET | 10.0 |
+| YARP | 2.3.0+ |
+| Swashbuckle.AspNetCore | 10.1.0+ |
+| Microsoft.OpenApi | 2.4.1+ (transitive) |
 
-**Background knowledge you'll need:**
-
-1. **YARP (Yet Another Reverse Proxy)** - Microsoft's reverse proxy library
-   - Official docs: <https://microsoft.github.io/reverse-proxy/>
-   - Getting started: <https://microsoft.github.io/reverse-proxy/articles/getting-started.html>
-
-2. **Swagger/OpenAPI** - API documentation specification
-   - ASP.NET Core integration: <https://learn.microsoft.com/en-us/aspnet/core/tutorials/getting-started-with-swashbuckle>
-
-## Quick Start
-
-### Step 1: Install NuGet Package
-
-```bash
-dotnet add package Yuzhu.Yarp.Swagger
-```
-
-### Step 2: Configure appsettings.json
-
-Here's a minimal configuration example (single backend service):
-
-```json
-{
-  "ReverseProxy": {
-    "Routes": {
-      "ApiRoute": {
-        "ClusterId": "ApiCluster",
-        "Match": {
-          "Path": "/api/{**catch-all}"
-        },
-        "Transforms": [
-          { "PathPattern": "{**catch-all}" }
-        ]
-      }
-    },
-    "Clusters": {
-      "ApiCluster": {
-        "Destinations": {
-          "Default": {
-            "Address": "https://localhost:5001"
-          }
-        },
-        "Metadata": {
-          "Swagger:Enabled": "true",
-          "Swagger:Prefix": "/api"
-        }
-      }
-    }
-  }
-}
-```
-
-### Step 3: Configure Program.cs
+## Quick start
 
 ```csharp
 using Yuzhu.Yarp.Swagger.Adapters.Swashbuckle;
 using Yuzhu.Yarp.Swagger.Extensions;
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-var configuration = builder.Configuration.GetSection("ReverseProxy");
-var reverseProxyBuilder = builder.Services
+IReverseProxyBuilder reverseProxy = builder.Services
     .AddReverseProxy()
-    .LoadFromConfig(configuration);
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
-// Only enable Swagger aggregation in Development when Swagger is not needed in production
 if (builder.Environment.IsDevelopment())
 {
-    builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
-
-    reverseProxyBuilder.AddSwaggerAggregation();
+    reverseProxy.AddSwaggerAggregation();
 }
 
-var app = builder.Build();
+WebApplication app = builder.Build();
 
-// 2. Enable Swagger UI in Development
 if (app.Environment.IsDevelopment())
 {
+    // 200 / 404 / 503 semantics for /swagger/{document}/swagger.json
+    app.UseSwaggerAggregationDocuments();
+
+    // Standard Swashbuckle middleware (kept for compatibility tooling)
     app.UseSwagger();
-    app.UseSwaggerUI(options =>
-    {
-        options.ConfigureAggregatedEndpoints(app.Services);  // Configure aggregated endpoints
-    });
+    app.UseSwaggerUI(options => options.ConfigureAggregatedEndpoints(app.Services));
 }
 
 app.MapReverseProxy();
-
 app.Run();
 ```
 
-If your production gateway does not expose Swagger, prefer registering `AddSwaggerAggregation()` only in `Development` so the background refresh service and document-loading pipeline are not started in production.
+YARP cluster metadata enables aggregation per cluster:
 
-### Step 4: Run and Verify
-
-1. Start your backend service (ensure it has Swagger documentation)
-2. Start the YARP gateway
-3. Visit `https://localhost:<port>/swagger` to view the aggregated Swagger UI
-
-![Swagger UI Screenshot](https://raw.githubusercontent.com/lijon2015/yarp-swagger/main/README.png)
+```jsonc
+{
+  "ReverseProxy": {
+    "Clusters": {
+      "OrdersCluster": {
+        "Destinations": {
+          "Default": { "Address": "https://orders.internal" }
+        },
+        "Metadata": {
+          "Swagger:Enabled": "true",
+          "Swagger:Path": "/swagger/v1/swagger.json",
+          "Swagger:Prefix": "/proxy-orders",
+          "Swagger:DocumentName": "orders",
+          "Swagger:IsMetadataSource": "true"
+        }
+      }
+    }
+  }
+}
+```
 
 ## Configuration
 
-### Cluster Metadata Options
+### `SwaggerAggregation` section
 
-Configure Swagger discovery via YARP cluster metadata:
-
-| Metadata Key | Description | Default |
-|--------------|-------------|---------|
-| `Swagger:Enabled` | Enable Swagger aggregation for this cluster | `false` |
-| `Swagger:Path` | Path to Swagger JSON document | `/swagger/v1/swagger.json` |
-| `Swagger:Prefix` | Path prefix to add to all operations | (none) |
-| `Swagger:PathFilter` | Regex pattern to filter paths (max 500 chars) | (none) |
-| `Swagger:IsMetadataSource` | Use this cluster's document info as metadata source | `false` |
-| `Swagger:AccessTokenClient` | OAuth2 client name for authentication | (none) |
-| `Swagger:DocumentName` | Document group name (defaults to ClusterId) | (cluster id) |
-
-### Aggregation Options
-
-Configure via `SwaggerAggregation` section in `appsettings.json`:
-
-```json
+```jsonc
 {
   "SwaggerAggregation": {
     "RefreshInterval": "00:05:00",
     "LoadTimeout": "00:00:30",
-    "MaxRetryAttempts": 3
+    "AggregationTimeout": "00:02:00",
+    "MaxParallelism": 10,
+    "MaxRetryAttempts": 3,
+    "DefaultSwaggerPath": "/swagger/v1/swagger.json",
+    "StartupDelay": "00:00:05",
+    "MaxDocumentSizeBytes": 10485760,
+    "IncludeFailedServicesWarning": false
   }
 }
 ```
 
-| Option | Description | Default | Range |
-|--------|-------------|---------|-------|
-| `RefreshInterval` | Background refresh interval | `00:05:00` | 10s - 24h |
-| `LoadTimeout` | Per-attempt timeout for loading each Swagger document (enforced by the resilience pipeline). Total time-to-failure ≈ `LoadTimeout × (MaxRetryAttempts + 1) + 5s` | `00:00:30` | 5s - 5min |
-| `AggregationTimeout` | Overall aggregation process timeout | `00:02:00` | 30s - 10min |
-| `MaxParallelism` | Maximum parallel document loads | `10` | 1 - 50 |
-| `MaxRetryAttempts` | Maximum retry attempts for failed loads (Polly exponential backoff with jitter, applied by the resilience pipeline) | `3` | 0 - 10 |
-| `DefaultSwaggerPath` | Default Swagger path when metadata unspecified | `/swagger/v1/swagger.json` | max 200 chars |
-| `StartupDelay` | Initial delay before first refresh | `00:00:05` | - |
-| `MaxDocumentSizeBytes` | Maximum document size to prevent OOM | `10485760` (10MB) | 1KB - 100MB |
+### Cluster metadata keys
 
-## Multi-Service Configuration
+| Key | Purpose |
+| --- | ------- |
+| `Swagger:Enabled` | Enable aggregation for the cluster (`"true"`). |
+| `Swagger:Path` | Override the Swagger document path on the backend. |
+| `Swagger:Prefix` | Prefix prepended to every transformed path. |
+| `Swagger:PathFilter` | Regex used to filter the paths kept after transform. |
+| `Swagger:DocumentName` | Logical document group name. Falls back to cluster id. |
+| `Swagger:IsMetadataSource` | This cluster's `info` block wins for the merged document. |
+| `Swagger:AccessTokenClient` | OAuth2 client credentials client name. |
 
-Here's an example of aggregating multiple backend services:
+### Aggregation document endpoint
 
-```json
-{
-  "ReverseProxy": {
-    "Routes": {
-      "App1Route": {
-        "ClusterId": "App1Cluster",
-        "Match": { "Path": "/proxy-app1/{**catch-all}" },
-        "Transforms": [{ "PathPattern": "{**catch-all}" }]
-      },
-      "App2Route": {
-        "ClusterId": "App2Cluster",
-        "Match": { "Path": "/proxy-app2/{**catch-all}" },
-        "Transforms": [{ "PathPattern": "{**catch-all}" }]
-      }
-    },
-    "Clusters": {
-      "App1Cluster": {
-        "Destinations": {
-          "Default": { "Address": "https://localhost:5101" }
-        },
-        "Metadata": {
-          "Swagger:Enabled": "true",
-          "Swagger:Prefix": "/proxy-app1",
-          "Swagger:IsMetadataSource": "true"
-        }
-      },
-      "App2Cluster": {
-        "Destinations": {
-          "Default": { "Address": "https://localhost:5102" }
-        },
-        "Metadata": {
-          "Swagger:Enabled": "true",
-          "Swagger:Prefix": "/proxy-app2",
-          "Swagger:IsMetadataSource": "true"
-        }
-      }
-    }
-  }
-}
-```
-
-> **Note:** The `Swagger:IsMetadataSource` option controls whether the cluster's Swagger document info (title, version, description) is used in the aggregated Swagger UI. If not set, a default title "Aggregated API" will be displayed instead of the backend service's actual title.
-
-## Authentication
-
-For protected Swagger endpoints, configure OAuth2 client credentials:
-
-### appsettings.json
-
-```json
-{
-  "ReverseProxy": {
-    "Clusters": {
-      "App1Cluster": {
-        "Metadata": {
-          "Swagger:Enabled": "true",
-          "Swagger:Prefix": "/proxy-app1",
-          "Swagger:AccessTokenClient": "Identity"
-        }
-      }
-    }
-  }
-}
-```
-
-### Program.cs
+`UseSwaggerAggregationDocuments()` is configured through
+`SwaggerAggregationDocumentEndpointOptions`. Set values via
+`builder.ConfigureDocumentEndpoint(...)` during DI registration:
 
 ```csharp
-builder.Services.AddClientCredentialsTokenManagement()
-    .AddClient("Identity", client =>
+reverseProxy.AddSwaggerAggregation(builder => builder
+    .ConfigureDocumentEndpoint(o =>
     {
-        client.TokenEndpoint = "https://identity-server/connect/token";
-        client.ClientId = "your-client-id";
-        client.ClientSecret = "your-client-secret";
-    });
-
-builder.Services
-    .AddReverseProxy()
-    .LoadFromConfig(configuration)
-    .AddSwaggerAggregation();
+        o.RoutePrefix = "/swagger";
+        o.UnavailableStatusCode = StatusCodes.Status503ServiceUnavailable;
+        o.IncludeKnownDocumentsOnNotFound = true;
+        o.OpenApiSpecVersion = OpenApiSpecVersion.OpenApi3_0;
+        o.DiagnosticsDocumentName = "diagnostics";
+    }));
 ```
 
-## Advanced Configuration
+| Option | Default | Purpose |
+| ------ | ------- | ------- |
+| `RoutePrefix` | `/swagger` | Path prefix the middleware listens on. |
+| `UnavailableStatusCode` | `503` | Status returned when a known document fails to aggregate. |
+| `IncludeKnownDocumentsOnNotFound` | `true` | Include known document names in the 404 problem body. |
+| `OpenApiSpecVersion` | `OpenApi3_0` | Wire format used when serializing the merged document. |
+| `DiagnosticsDocumentName` | `diagnostics` | Document name served by the optional diagnostics endpoint. |
 
-### Custom Document Transformers
+## HTTP semantics
 
-Register custom transformers to modify Swagger documents:
+`UseSwaggerAggregationDocuments()` listens at
+`/{RoutePrefix}/{documentName}/swagger.json` and produces deterministic
+responses:
 
-```csharp
-public class MyCustomTransformer : ISwaggerDocumentTransformer
-{
-    public int Order => 100; // Execution order (lower runs first)
+| Outcome | Status | Body |
+| ------- | ------ | ---- |
+| Document resolved (cache hit or fresh aggregation) | `200` | OpenAPI document, JSON, serialized at `OpenApiSpecVersion`. |
+| Document name not in the discovery snapshot | `404` | `application/problem+json` with the requested name and known names. |
+| Document discovered but every backend load failed | `503` (configurable) | `application/problem+json` with the failure reason summarized as `cluster\|stage\|status`. |
+| Path doesn't match `/{prefix}/{name}/swagger.json` | passthrough | The next middleware decides. |
 
-    public ValueTask<OpenApiDocument> TransformAsync(
-        OpenApiDocument document,
-        TransformContext context,
-        CancellationToken cancellationToken = default)
-    {
-        // Modify document here
-        return ValueTask.FromResult(document);
-    }
-}
+Partial backend failures still produce `200`: the merged document carries
+whatever loaded successfully, and the failures are surfaced through logs and
+metrics, not by suppressing the response.
 
-builder.Services
-    .AddReverseProxy()
-    .LoadFromConfig(configuration)
-    .AddSwaggerAggregation(builder =>
-    {
-        builder.AddTransformer<MyCustomTransformer>();
-    });
-```
-
-### Custom Endpoint Provider
-
-Replace the default hybrid endpoint discovery:
-
-```csharp
-builder.Services
-    .AddReverseProxy()
-    .LoadFromConfig(configuration)
-    .AddSwaggerAggregation(builder =>
-    {
-        builder.UseEndpointProvider<MyCustomEndpointProvider>();
-    });
-```
-
-### Custom Document Loader
-
-Replace the default HTTP-based document loader:
-
-```csharp
-builder.Services
-    .AddReverseProxy()
-    .LoadFromConfig(configuration)
-    .AddSwaggerAggregation(builder =>
-    {
-        builder.UseDocumentLoader<MyCustomDocumentLoader>();
-    });
-```
-
-### Custom Document Store
-
-Replace the default in-memory store (e.g., for distributed caching):
-
-```csharp
-builder.Services
-    .AddReverseProxy()
-    .LoadFromConfig(configuration)
-    .AddSwaggerAggregation(builder =>
-    {
-        builder.UseDocumentStore<RedisDocumentStore>();
-    });
-```
-
-### Programmatic Configuration
-
-Configure options via code:
-
-```csharp
-builder.Services
-    .AddReverseProxy()
-    .LoadFromConfig(configuration)
-    .AddSwaggerAggregation(builder =>
-    {
-        builder.Configure(options =>
-        {
-            options.RefreshInterval = TimeSpan.FromMinutes(10);
-            options.LoadTimeout = TimeSpan.FromSeconds(60);
-            options.MaxRetryAttempts = 5;
-        });
-    });
-```
-
-## Telemetry
-
-The library emits OpenTelemetry metrics and traces under the source name `Yarp.Swagger.Aggregation`.
-
-### Metrics
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| `swagger.refresh.count` | Counter | Number of refresh operations |
-| `swagger.load.success` | Counter | Number of successful document loads |
-| `swagger.load.failure` | Counter | Number of failed document loads |
-| `swagger.cache.hit` | Counter | Number of cache hits |
-| `swagger.load.duration` | Histogram | Load duration in milliseconds |
-| `swagger.refresh.duration` | Histogram | Refresh duration in milliseconds |
-| `swagger.endpoints.count` | Gauge | Number of discovered endpoints |
-
-### Traces
-
-- `LoadSwaggerDocument` - Activity for each document load operation
-- `AggregateDocuments` - Activity for the aggregation process
-
-### Enable Telemetry
-
-```csharp
-builder.Services.AddOpenTelemetry()
-    .WithMetrics(metrics =>
-    {
-        metrics.AddMeter("Yarp.Swagger.Aggregation");
-    })
-    .WithTracing(tracing =>
-    {
-        tracing.AddSource("Yarp.Swagger.Aggregation");
-    });
-```
-
-## Troubleshooting
-
-### Common Issues
-
-#### 1. Swagger UI doesn't show aggregated endpoints
-
-**Possible causes:**
-
-- Backend service is not running or not accessible
-- `Swagger:Enabled` is not set to `true`
-- Swagger path configuration is incorrect
-
-**Solutions:**
-
-1. Confirm the backend service is running
-2. Check if the backend's Swagger document is directly accessible (e.g., `https://localhost:5001/swagger/v1/swagger.json`)
-3. Ensure `Swagger:Enabled` is set to `"true"` (note: it's a string)
-
-#### 2. Load timeout errors
-
-**Possible causes:**
-
-- Backend service responds slowly
-- Network issues
-- `LoadTimeout` is set too short
-
-**Solution:**
-
-```json
-{
-  "SwaggerAggregation": {
-    "LoadTimeout": "00:01:00"
-  }
-}
-```
-
-#### 3. Authentication failures
-
-**Possible causes:**
-
-- OAuth2 client configuration is incorrect
-- Token endpoint is not accessible
-- Invalid client credentials
-
-**Solutions:**
-
-1. Verify Identity Server is running
-2. Check `ClientId` and `ClientSecret` are correct
-3. Confirm Token endpoint URL is correct
-
-#### 4. Incorrect path prefix
-
-**Possible cause:**
-
-- `Swagger:Prefix` doesn't match YARP route configuration
-
-**Solution:**
-
-Ensure `Swagger:Prefix` matches the `Match.Path` prefix in YARP Route:
-
-```json
-{
-  "Routes": {
-    "ApiRoute": {
-      "Match": { "Path": "/api/{**catch-all}" }
-    }
-  },
-  "Clusters": {
-    "ApiCluster": {
-      "Metadata": {
-        "Swagger:Prefix": "/api"
-      }
-    }
-  }
-}
-```
-
-### Debugging Tips
-
-Enable detailed logging to troubleshoot issues:
-
-```json
-{
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information",
-      "Yuzhu.Yarp.Swagger": "Debug"
-    }
-  }
-}
-```
+The middleware must run **before** `UseSwagger()` so its semantics take
+precedence over Swashbuckle's default exception handling (which would turn an
+aggregation failure into an opaque 500).
 
 ## Architecture
 
 ```text
-src/Yuzhu.Yarp.Swagger/
-├── Abstractions/           # Core interfaces (ISwaggerAggregator, ISwaggerDocumentLoader, etc.)
-├── Adapters/Swashbuckle/   # Swashbuckle integration (AggregatedSwaggerProvider)
-├── Background/             # Background refresh service (SwaggerRefreshService, SwaggerAggregator)
-├── Configuration/          # Options and builder (SwaggerAggregationOptions, MetadataKeys)
-├── Discovery/              # Endpoint discovery (Hybrid/YARP state + configuration fallback)
-├── Extensions/             # Service registration (AddSwaggerAggregation)
-├── Loading/                # HTTP document loader with resilience
-├── Merging/                # Document merger (paths, components, tags)
-├── Resilience/             # Polly-based retry, circuit breaker, timeout
-├── Storage/                # In-memory document store
-├── Telemetry/              # OpenTelemetry metrics and traces
-└── Transforming/           # Path prefix and filter transformers
+┌─────────────────────┐  GetCandidatesAsync ┌──────────────────────┐
+│  EndpointSources    │ ───────────────►   │                      │
+│  - YarpRuntime      │                    │ DiscoveryService     │
+│  - YarpConfiguration│                    │  - dedup by cluster  │
+└─────────────────────┘                    │  - read metadata     │
+                                            │  - run resolvers     │
+┌─────────────────────┐  ResolveAsync      │                      │
+│ AddressResolvers    │ ◄──────────────── │  → Endpoints +       │
+│  - YarpRuntime      │                    │    Diagnostics       │
+│  - YarpConfigured   │                    └──────────┬───────────┘
+└─────────────────────┘                               │
+                                                      ▼
+                                      ┌────────────────────────────┐
+                                      │  SwaggerDocumentCoordinator│
+                                      │  → load → transform → merge│
+                                      └────────┬─────────┬─────────┘
+                                               │         │
+                              UseSwaggerAggreg │         │ AggregatedSwagger
+                              ationDocuments() │         │ Provider (Swashbuckle)
+                              200 / 404 / 503  │         │ ISwaggerProvider
+                                               ▼         ▼
+                                            HTTP                                                Refresh service
+                                                          ◄── ISwaggerRefreshTrigger
+                                                              - Options change
+                                                              - Periodic
+                                                              - YARP config change
 ```
 
-### Data Flow
+## Extension points
+
+The five-interface pipeline lets you replace any single stage without forking
+the library.
+
+### Custom endpoint source
+
+```csharp
+reverseProxy.AddSwaggerAggregation(builder =>
+    builder.AddSource<MyServiceDirectorySource>());
+```
+
+### Custom address resolver (e.g. project fallback destinations)
+
+```csharp
+reverseProxy.AddSwaggerAggregation(builder =>
+    builder.InsertAddressResolver<GatewayFallbackDestinationAddressResolver>());
+```
+
+### Custom refresh trigger
+
+```csharp
+reverseProxy.AddSwaggerAggregation(builder =>
+    builder.AddRefreshTrigger<ConsulServiceWatcherRefreshTrigger>());
+```
+
+### Custom transformer
+
+```csharp
+reverseProxy.AddSwaggerAggregation(builder =>
+    builder.AddTransformer<MyTagRewriteTransformer>());
+```
+
+### Override storage / loader / merger
+
+```csharp
+reverseProxy.AddSwaggerAggregation(builder => builder
+    .UseDocumentStore<RedisAggregatedDocumentStore>()
+    .UseDocumentLoader<MyHttpSwaggerLoader>()
+    .UseDocumentMerger<StrictDocumentMerger>());
+```
+
+### Empty-discovery UI behavior
+
+When discovery returns zero documents, `AggregatedSwaggerUIOptions.EmptyBehavior`
+controls what the UI dropdown shows:
+
+- `NoEndpoints` (default) — empty dropdown, structured warning logged.
+- `DiagnosticEndpoint` — single dropdown entry "Swagger Aggregation Diagnostics"
+  pointing at `/{RoutePrefix}/{DiagnosticsDocumentName}/swagger.json`. The
+  middleware serves a real OpenAPI document at that path whose `info.description`
+  lists the current discovery diagnostics, so Swagger UI renders cleanly instead
+  of showing "failed to load".
+
+```csharp
+app.UseSwaggerUI(options => options.ConfigureAggregatedEndpoints(
+    app.Services,
+    ui =>
+    {
+        ui.EmptyBehavior = EmptySwaggerEndpointBehavior.DiagnosticEndpoint;
+        ui.PrimaryDocumentName = "orders";
+    }));
+```
+
+The UI's `RoutePrefix` and `DiagnosticsDocumentName` default to the values from
+`SwaggerAggregationDocumentEndpointOptions`, so the URL automatically matches
+what the middleware serves.
+
+## Diagnostics and observability
+
+Discovery returns a structured result with per-cluster diagnostics — every
+skip and failure has a `ClusterId` / `Stage` / `Severity` / `Message` record:
+
+```csharp
+ISwaggerEndpointDiscoveryService discovery = ...;
+SwaggerEndpointDiscoveryResult result = await discovery.DiscoverAsync();
+
+foreach (SwaggerEndpointDiagnostic d in result.Diagnostics)
+{
+    logger.LogInformation(
+        "Cluster {ClusterId} {Stage}/{Severity}: {Message}",
+        d.ClusterId, d.Stage, d.Severity, d.Message);
+}
+```
+
+OpenTelemetry signals (source: `Yuzhu.Yarp.Swagger`):
+
+| Type | Name | Notes |
+| ---- | ---- | ----- |
+| Activity | `SwaggerDiscovery` | Tags: `document.name`, `endpoints.count` |
+| Activity | `LoadSwaggerDocument` | Tags: `cluster.id`, `destination.address`, `swagger.path` |
+| Activity | `AggregateDocuments` | Tags: `document.name`, `endpoints.count` |
+| Counter | `swagger.discovery.skipped` | Tags: `cluster.id`, `failure.stage` |
+| Counter | `swagger.load.success` | Tags: `cluster.id`, `document.name` |
+| Counter | `swagger.load.failure` | Tags: `cluster.id`, `failure.stage`, `http.status_code` |
+| Counter | `swagger.cache.hit` | Tags: `document.name` |
+| Histogram | `swagger.load.duration` | ms |
+| Histogram | `swagger.refresh.duration` | ms |
+| Gauge | `swagger.endpoints.count` | observable |
+
+## OpenAPI version compatibility
+
+| Component | Versions | Notes |
+| --------- | -------- | ----- |
+| OpenAPI Specification (reference) | 3.0 / 3.1 / 3.2 | Latest spec at `spec.openapis.org/oas/latest.html` is 3.2. |
+| `Microsoft.OpenApi 2.4.1` (transitive) | 3.0 / 3.1 | `OpenApiSpecVersion` only exposes 3.0 and 3.1; 3.2 wire format is not yet emitted. |
+| Swashbuckle.AspNetCore 10.1.7 | 3.0 / 3.1 | Provider/middleware behavior validated at this version. |
+| Swagger UI | 3.0 / 3.1 / 3.2 | Per Swagger's 3.2 announcement; 3.2 rendering only matters once the .NET stack can emit 3.2. |
+
+Defaults and policy:
+
+- The aggregator parses every downstream document with `Microsoft.OpenApi`,
+  preserving fields that the underlying parser supports.
+- The wire format used to serialize the merged document is controlled by
+  `SwaggerAggregationDocumentEndpointOptions.OpenApiSpecVersion` (default
+  `OpenApi3_0` for the widest tooling interop).
+- Set `OpenApiSpecVersion = OpenApiSpecVersion.OpenApi3_1` if downstream
+  services emit 3.1 and you need that wire format preserved.
+- Per-document version preservation (i.e. emitting different wire formats per
+  aggregated document) is not built in; supply a custom merger if you need it.
+
+## Troubleshooting
+
+### Swagger UI dropdown is empty
+
+The library does not register a placeholder document. Check the structured
+discovery diagnostics in the refresh service log line:
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│                     Application Startup                      │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-            ┌─────────────────────────────────────┐
-            │   AddSwaggerAggregation()           │
-            │   - Register services               │
-            │   - Configure HttpClient            │
-            │   - Start background service        │
-            └─────────────────────────────────────┘
-                              │
-                              ▼
-            ┌─────────────────────────────────────┐
-            │   SwaggerRefreshService             │
-            │   - Periodic refresh                │
-            │   - Config change detection         │
-            └─────────────────────────────────────┘
-                              │
-        ┌─────────────────────┴─────────────────────┐
-        ▼                                           ▼
-┌───────────────────┐                 ┌───────────────────────┐
-│ ISwaggerEndpoint- │                 │ ISwaggerDocumentLoader│
-│ Provider          │────────────────▶│ - HTTP requests       │
-│ - Discover from   │   endpoints     │ - OAuth2 tokens       │
-│   YARP config     │                 │ - Retry/Circuit break │
-└───────────────────┘                 └───────────────────────┘
-                                                  │
-                                                  ▼ documents
-                                      ┌───────────────────────┐
-                                      │ ISwaggerDocument-     │
-                                      │ Transformer[]         │
-                                      │ - PathPrefixTransform │
-                                      │ - PathFilterTransform │
-                                      └───────────────────────┘
-                                                  │
-                                                  ▼ transformed
-                                      ┌───────────────────────┐
-                                      │ ISwaggerDocumentMerger│
-                                      │ - Merge paths         │
-                                      │ - Merge components    │
-                                      └───────────────────────┘
-                                                  │
-                                                  ▼ merged
-                                      ┌───────────────────────┐
-                                      │ IAggregatedDocument-  │
-                                      │ Store                 │
-                                      │ - In-memory cache     │
-                                      └───────────────────────┘
-                                                  │
-                                                  ▼
-            ┌─────────────────────────────────────┐
-            │   GET /swagger/{doc}/swagger.json   │
-            │   AggregatedSwaggerProvider         │
-            │   - Cache lookup                    │
-            │   - On-demand loading               │
-            └─────────────────────────────────────┘
+Swagger discovery returned 0 endpoints. Diagnostics: orders|metadata|info: Skipped: metadata key 'Swagger:Enabled' not set
 ```
+
+Common causes:
+
+- `Swagger:Enabled` metadata is missing or not the literal string `"true"`.
+- The cluster has no destinations in YARP runtime state (and no static
+  destinations either).
+- Custom `ConsulYarpConfigProvider` / dynamic destinations require a custom
+  `ISwaggerEndpointAddressResolver` (the runtime resolver only knows about
+  available + configured destinations on `ClusterState`).
+
+If you want the UI to show *why* it is empty, switch to
+`EmptySwaggerEndpointBehavior.DiagnosticEndpoint`; the middleware will serve a
+synthetic document at the diagnostics URL whose description carries the
+diagnostic list.
+
+### Document name returns 404 even though the cluster exists
+
+The 404 means the discovery service did not produce an endpoint with that
+document name. Hit `/swagger/{name}/swagger.json` and look at the JSON
+problem body — it lists known document names.
+
+### Document returns 503
+
+The discovery service produced endpoint(s) for the document, but every backend
+load failed (HTTP error, timeout, parse error, size limit). The 503 body and
+the structured log line both include the failure reason summarized as
+`cluster|stage|status`. Partial backend failures do not trigger 503; they are
+merged into the document.
 
 ## License
 
-This project is licensed under the MIT License.
+MIT — see [LICENSE](LICENSE.md).

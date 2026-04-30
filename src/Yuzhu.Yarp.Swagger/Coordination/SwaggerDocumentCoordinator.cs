@@ -1,92 +1,137 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Yuzhu.Yarp.Swagger.Abstractions;
-using Yuzhu.Yarp.Swagger.Discovery;
+using Yuzhu.Yarp.Swagger.Configuration;
 
 namespace Yuzhu.Yarp.Swagger.Coordination;
 
 /// <summary>
-/// Coordinates endpoint discovery, aggregation, and cache storage for Swagger documents.
+/// Top-level façade. Calls the discovery service, groups endpoints by document name, and
+/// either returns a cached document or aggregates a new one through
+/// <see cref="ISwaggerAggregator"/>.
 /// </summary>
 public sealed class SwaggerDocumentCoordinator(
-    IAggregatedDocumentStore documentStore,
-    ISwaggerEndpointProvider endpointProvider,
+    ISwaggerEndpointDiscoveryService discoveryService,
     ISwaggerAggregator aggregator,
+    IAggregatedDocumentStore documentStore,
+    IOptionsMonitor<SwaggerAggregationOptions> options,
     ILogger<SwaggerDocumentCoordinator> logger)
 {
-    private readonly IAggregatedDocumentStore _documentStore = documentStore;
-    private readonly ISwaggerEndpointProvider _endpointProvider = endpointProvider;
+    private readonly ISwaggerEndpointDiscoveryService _discoveryService = discoveryService;
     private readonly ISwaggerAggregator _aggregator = aggregator;
+    private readonly IAggregatedDocumentStore _documentStore = documentStore;
+    private readonly IOptionsMonitor<SwaggerAggregationOptions> _options = options;
     private readonly ILogger<SwaggerDocumentCoordinator> _logger = logger;
 
-    public IReadOnlyList<string> GetDocumentNames()
+    /// <summary>
+    /// Lists currently known document names. Prefers cached documents (which represent the
+    /// last successful refresh) and falls back to a fresh discovery if the cache is empty.
+    /// </summary>
+    public async ValueTask<IReadOnlyList<string>> GetDocumentNamesAsync(
+        CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<string> cachedNames = _documentStore.GetDocumentNames();
-        return cachedNames.Count > 0 ? cachedNames : BuildDocumentNames(_endpointProvider.GetEndpoints());
+        IReadOnlyList<string> cached = _documentStore.GetDocumentNames();
+        if (cached.Count > 0)
+        {
+            return cached;
+        }
+
+        SwaggerEndpointDiscoveryResult result = await _discoveryService.DiscoverAsync(
+            documentName: null,
+            cancellationToken);
+
+        return [.. result.Endpoints
+            .Select(static e => e.DocumentName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
+    /// <summary>
+    /// Run a fresh discovery pass and return the structured diagnostics. Used by the
+    /// aggregation document middleware to serve <c>/{prefix}/{diagnosticsName}/swagger.json</c>
+    /// when <see cref="Configuration.EmptySwaggerEndpointBehavior.DiagnosticEndpoint"/> is on.
+    /// </summary>
+    public async ValueTask<SwaggerEndpointDiscoveryResult> DiscoverAsync(
+        CancellationToken cancellationToken = default) =>
+        await _discoveryService.DiscoverAsync(documentName: null, cancellationToken);
+
+    /// <summary>
+    /// Resolve a single document by name. Returns a cached copy when available; otherwise
+    /// runs a discovery + aggregation pass restricted to the requested document.
+    /// </summary>
     public async Task<SwaggerDocumentResolution> ResolveDocumentAsync(
         string documentName,
         CancellationToken cancellationToken = default)
     {
-        OpenApiDocument? cachedDocument = await _documentStore.GetAsync(documentName, cancellationToken);
-        if (cachedDocument != null)
+        OpenApiDocument? cached = await _documentStore.GetAsync(documentName, cancellationToken);
+        if (cached is not null)
         {
-            return SwaggerDocumentResolution.Cached(cachedDocument);
+            return SwaggerDocumentResolution.Cached(cached);
         }
 
-        IReadOnlyList<SwaggerEndpoint> endpoints = _endpointProvider.GetEndpoints(documentName);
-        if (endpoints.Count == 0)
+        SwaggerEndpointDiscoveryResult discovery = await _discoveryService.DiscoverAsync(
+            documentName,
+            cancellationToken);
+
+        if (discovery.Endpoints.Count == 0)
         {
-            _logger.LogWarning("No endpoints found for document '{DocumentName}'", documentName);
-            return SwaggerDocumentResolution.NotFound();
+            _logger.LogWarning(
+                "No endpoints discovered for document '{DocumentName}'",
+                documentName);
+
+            return SwaggerDocumentResolution.NotFound(discovery.Diagnostics);
         }
 
-        return await AggregateAndStoreAsync(documentName, endpoints, cancellationToken);
+        return await AggregateAndStoreAsync(documentName, discovery.Endpoints, cancellationToken);
     }
 
-    public async Task<SwaggerRefreshResult> RefreshAllDocumentsAsync(
-        CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Discover and aggregate every document. Used by the refresh service.
+    /// </summary>
+    public async Task<SwaggerRefreshResult> RefreshAllAsync(CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<SwaggerEndpoint> endpoints = _endpointProvider.GetEndpoints();
-        if (endpoints.Count == 0)
+        SwaggerEndpointDiscoveryResult discovery = await _discoveryService.DiscoverAsync(
+            documentName: null,
+            cancellationToken);
+
+        if (discovery.Endpoints.Count == 0)
         {
-            _logger.LogDebug("No swagger endpoints discovered");
-            return SwaggerRefreshResult.Empty;
+            return new SwaggerRefreshResult(0, 0, 0, 0, discovery.Diagnostics);
         }
 
-        List<IGrouping<string, SwaggerEndpoint>> documentGroups = [.. endpoints.GroupBy(SwaggerEndpointDiscoveryHelper.GetEffectiveDocumentName, StringComparer.OrdinalIgnoreCase)];
+        IGrouping<string, SwaggerEndpoint>[] groups = [.. discovery.Endpoints
+            .GroupBy(e => e.DocumentName, StringComparer.OrdinalIgnoreCase)];
 
-        int refreshedCount = 0;
-        int failedCount = 0;
+        int refreshed = 0;
+        int failed = 0;
 
-        foreach (IGrouping<string, SwaggerEndpoint>? documentGroup in documentGroups)
+        foreach (IGrouping<string, SwaggerEndpoint> group in groups)
         {
             SwaggerDocumentResolution resolution = await AggregateAndStoreAsync(
-                documentGroup.Key,
-                [.. documentGroup],
+                group.Key,
+                [.. group],
                 cancellationToken);
 
-            if (resolution.Document != null)
+            if (resolution.Document is not null)
             {
-                refreshedCount++;
-
+                refreshed++;
                 _logger.LogInformation(
-                    "Refreshed swagger document '{DocumentName}' with {PathCount} paths",
-                    documentGroup.Key,
+                    "Refreshed Swagger document '{DocumentName}' with {PathCount} paths",
+                    group.Key,
                     resolution.Document.Paths.Count);
             }
             else
             {
-                failedCount++;
+                failed++;
             }
         }
 
         return new SwaggerRefreshResult(
-            endpoints.Count,
-            documentGroups.Count,
-            refreshedCount,
-            failedCount);
+            EndpointCount: discovery.Endpoints.Count,
+            DocumentCount: groups.Length,
+            RefreshedCount: refreshed,
+            FailedCount: failed,
+            Diagnostics: discovery.Diagnostics);
     }
 
     private async Task<SwaggerDocumentResolution> AggregateAndStoreAsync(
@@ -96,10 +141,14 @@ public sealed class SwaggerDocumentCoordinator(
     {
         try
         {
-            AggregationContext context = new AggregationContext
+            AggregationContext context = new()
             {
                 DocumentName = documentName,
-                Endpoints = endpoints
+                Endpoints = endpoints,
+                MergeOptions = new SwaggerMergeOptions
+                {
+                    IncludeFailedServicesWarning = _options.CurrentValue.IncludeFailedServicesWarning,
+                },
             };
 
             OpenApiDocument document = await _aggregator.AggregateAsync(context, cancellationToken);
@@ -107,44 +156,50 @@ public sealed class SwaggerDocumentCoordinator(
 
             return SwaggerDocumentResolution.Loaded(document);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "Failed to aggregate document '{DocumentName}'", documentName);
-            return SwaggerDocumentResolution.Failed();
+            _logger.LogError(
+                ex,
+                "Failed to aggregate document '{DocumentName}'",
+                documentName);
+            return SwaggerDocumentResolution.Failed(ex.Message);
         }
-    }
-
-    private static IReadOnlyList<string> BuildDocumentNames(IReadOnlyList<SwaggerEndpoint> endpoints)
-    {
-        return [.. endpoints
-            .Select(SwaggerEndpointDiscoveryHelper.GetEffectiveDocumentName)
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 }
 
+/// <summary>
+/// Outcome of <see cref="SwaggerDocumentCoordinator.ResolveDocumentAsync"/>.
+/// </summary>
 public sealed record SwaggerDocumentResolution(
     OpenApiDocument? Document,
     bool FromCache,
-    bool EndpointFound)
+    bool EndpointFound,
+    string? FailureReason = null,
+    IReadOnlyList<SwaggerEndpointDiagnostic>? Diagnostics = null)
 {
+    /// <summary>The document was returned from cache.</summary>
     public static SwaggerDocumentResolution Cached(OpenApiDocument document) =>
         new(document, FromCache: true, EndpointFound: true);
 
+    /// <summary>The document was aggregated successfully.</summary>
     public static SwaggerDocumentResolution Loaded(OpenApiDocument document) =>
         new(document, FromCache: false, EndpointFound: true);
 
-    public static SwaggerDocumentResolution NotFound() =>
-        new(Document: null, FromCache: false, EndpointFound: false);
+    /// <summary>No endpoint matches this document name (404).</summary>
+    public static SwaggerDocumentResolution NotFound(IReadOnlyList<SwaggerEndpointDiagnostic> diagnostics) =>
+        new(Document: null, FromCache: false, EndpointFound: false, Diagnostics: diagnostics);
 
-    public static SwaggerDocumentResolution Failed() =>
-        new(Document: null, FromCache: false, EndpointFound: true);
+    /// <summary>An endpoint exists but the document could not be aggregated (5xx).</summary>
+    public static SwaggerDocumentResolution Failed(string reason) =>
+        new(Document: null, FromCache: false, EndpointFound: true, FailureReason: reason);
 }
 
+/// <summary>
+/// Outcome of <see cref="SwaggerDocumentCoordinator.RefreshAllAsync"/>.
+/// </summary>
 public sealed record SwaggerRefreshResult(
     int EndpointCount,
     int DocumentCount,
     int RefreshedCount,
-    int FailedCount)
-{
-    public static SwaggerRefreshResult Empty { get; } = new(0, 0, 0, 0);
-}
+    int FailedCount,
+    IReadOnlyList<SwaggerEndpointDiagnostic> Diagnostics);

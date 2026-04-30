@@ -1,10 +1,11 @@
+using System.Diagnostics;
+using System.Net.Http.Headers;
 using Duende.AccessTokenManagement;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Microsoft.OpenApi.Reader;
 using Polly.Timeout;
-using System.Diagnostics;
 using Yuzhu.Yarp.Swagger.Abstractions;
 using Yuzhu.Yarp.Swagger.Configuration;
 using Yuzhu.Yarp.Swagger.Telemetry;
@@ -12,7 +13,10 @@ using Yuzhu.Yarp.Swagger.Telemetry;
 namespace Yuzhu.Yarp.Swagger.Loading;
 
 /// <summary>
-/// 基于 HTTP 的 Swagger 文档加载器
+/// HTTP-based loader that fetches a backend Swagger JSON document, validates the size, and
+/// parses it through <see cref="OpenApiDocument.LoadAsync(System.IO.Stream, string?, OpenApiReaderSettings?, CancellationToken)"/>.
+/// Per-attempt timeouts and retries come from the resilience pipeline configured on the
+/// named HTTP client.
 /// </summary>
 public sealed class HttpSwaggerDocumentLoader(
     IHttpClientFactory httpClientFactory,
@@ -21,223 +25,219 @@ public sealed class HttpSwaggerDocumentLoader(
     IClientCredentialsTokenManager? tokenManager = null) : ISwaggerDocumentLoader
 {
     private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
-    private readonly IClientCredentialsTokenManager? _tokenManager = tokenManager;
     private readonly IOptionsMonitor<SwaggerAggregationOptions> _options = options;
     private readonly ILogger<HttpSwaggerDocumentLoader> _logger = logger;
+    private readonly IClientCredentialsTokenManager? _tokenManager = tokenManager;
 
     public async Task<SwaggerLoadResult> LoadAsync(
         SwaggerEndpoint endpoint,
         CancellationToken cancellationToken = default)
     {
-        Stopwatch sw = Stopwatch.StartNew();
-
-        // 使用具名的 HTTP 客户端
-        HttpClient httpClient = _httpClientFactory.CreateClient(SwaggerConstants.HttpClientName);
-
-        using Activity? activity = SwaggerTelemetry.ActivitySource.StartActivity("LoadSwaggerDocument");
-        _ = (activity?.SetTag("cluster.id", endpoint.ClusterId));
-        _ = (activity?.SetTag("swagger.url", endpoint.SwaggerUrl.ToString()));
-
+        Stopwatch stopwatch = Stopwatch.StartNew();
         SwaggerAggregationOptions options = _options.CurrentValue;
 
-        // 整体预算 = 单次 LoadTimeout × (重试次数 + 1) + 缓冲，确保弹性管道的重试有时间窗口完成。
-        // 弹性管道负责每次尝试的超时和重试；本 CTS 是兜底，避免极端情况下无界等待。
-        TimeSpan overallBudget = TimeSpan.FromMilliseconds(
-            options.LoadTimeout.TotalMilliseconds * (options.MaxRetryAttempts + 1) + 5000);
+        using Activity? activity = SwaggerTelemetry.ActivitySource.StartActivity("LoadSwaggerDocument");
+        _ = activity?.SetTag("cluster.id", endpoint.ClusterId);
+        _ = activity?.SetTag("document.name", endpoint.DocumentName);
+        _ = activity?.SetTag("destination.address", endpoint.BaseAddress.ToString());
+        _ = activity?.SetTag("swagger.path", endpoint.SwaggerPath);
+
+        HttpClient httpClient = _httpClientFactory.CreateClient(SwaggerConstants.HttpClientName);
+
+        // Outer budget covers all attempts plus a small buffer; resilience pipeline owns
+        // per-attempt timeouts and retries.
+        TimeSpan budget = TimeSpan.FromMilliseconds(
+            options.LoadTimeout.TotalMilliseconds * (options.MaxRetryAttempts + 1) + 5_000);
+
+        using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(budget);
 
         try
         {
-            using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(overallBudget);
-
-            // 创建请求
-            using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, endpoint.SwaggerUrl);
-
-            // 如果配置了 AccessToken 客户端，获取并添加 token
-            if (!string.IsNullOrEmpty(endpoint.AccessTokenClient) && _tokenManager != null)
-            {
-                try
-                {
-                    ClientCredentialsToken tokenResult = await _tokenManager
-                        .GetAccessTokenAsync(ClientCredentialsClientName.Parse(endpoint.AccessTokenClient), ct: cts.Token)
-                        .GetToken();
-
-                    if (!string.IsNullOrEmpty(tokenResult.AccessToken))
-                    {
-                        request.Headers.Authorization =
-                            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokenResult.AccessToken);
-
-                        _logger.LogDebug(
-                            "Added access token for {ClusterId} using client {ClientName}",
-                            endpoint.ClusterId, endpoint.AccessTokenClient);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Failed to get access token for {ClusterId} using client {ClientName}",
-                        endpoint.ClusterId, endpoint.AccessTokenClient);
-                }
-            }
+            using HttpRequestMessage request = new(HttpMethod.Get, endpoint.SwaggerUrl);
+            await TryAttachAccessTokenAsync(request, endpoint, cts.Token);
 
             using HttpResponseMessage response = await httpClient.SendAsync(request, cts.Token);
-            _ = response.EnsureSuccessStatusCode();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return RecordFailure(
+                    endpoint,
+                    stopwatch,
+                    failureStage: "http",
+                    httpStatus: (int)response.StatusCode,
+                    error: $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
+            }
 
             int maxSize = options.MaxDocumentSizeBytes;
             long? declaredLength = response.Content.Headers.ContentLength;
 
-            // 优先读取 Content-Length 头进行预校验，避免下载超大文档浪费带宽和内存。
-            if (declaredLength.HasValue && declaredLength.Value > maxSize)
+            if (declaredLength is long declared && declared > maxSize)
             {
-                _logger.LogWarning(
-                    "Declared Content-Length exceeds limit for {ClusterId}: {Size} > {MaxSize} bytes",
-                    endpoint.ClusterId, declaredLength.Value, maxSize);
-
-                SwaggerTelemetry.LoadFailureCounter.Add(1,
-                    new KeyValuePair<string, object?>("cluster.id", endpoint.ClusterId),
-                    new KeyValuePair<string, object?>("error.type", "size_exceeded"));
-
-                sw.Stop();
-                return new SwaggerLoadResult
-                {
-                    Endpoint = endpoint,
-                    ErrorMessage = $"Content-Length {declaredLength.Value} exceeds maximum size of {maxSize} bytes",
-                    LoadDuration = sw.Elapsed
-                };
+                return RecordFailure(
+                    endpoint,
+                    stopwatch,
+                    failureStage: "size",
+                    httpStatus: (int)response.StatusCode,
+                    error: $"Declared Content-Length {declared} exceeds {maxSize} bytes");
             }
 
             await using Stream stream = await response.Content.ReadAsStreamAsync(cts.Token);
-
-            // 使用内存流以支持同步读取（带大小限制）
-            using MemoryStream memoryStream = new MemoryStream(
-                capacity: declaredLength is > 0 and <= int.MaxValue ? (int)declaredLength.Value : 8192);
+            using MemoryStream memory = new(declaredLength is > 0 and <= int.MaxValue
+                ? (int)declaredLength.Value
+                : 8192);
 
             byte[] buffer = new byte[8192];
-            long totalBytesRead = 0;
-            int bytesRead;
-
-            while ((bytesRead = await stream.ReadAsync(buffer, cts.Token)) > 0)
+            long total = 0;
+            int read;
+            while ((read = await stream.ReadAsync(buffer, cts.Token)) > 0)
             {
-                totalBytesRead += bytesRead;
-                if (totalBytesRead > maxSize)
+                total += read;
+                if (total > maxSize)
                 {
-                    _logger.LogWarning(
-                        "Document size exceeds limit for {ClusterId}: {Size} > {MaxSize} bytes",
-                        endpoint.ClusterId, totalBytesRead, maxSize);
-
-                    SwaggerTelemetry.LoadFailureCounter.Add(1,
-                        new KeyValuePair<string, object?>("cluster.id", endpoint.ClusterId),
-                        new KeyValuePair<string, object?>("error.type", "size_exceeded"));
-
-                    return new SwaggerLoadResult
-                    {
-                        Endpoint = endpoint,
-                        ErrorMessage = $"Document exceeds maximum size of {maxSize} bytes",
-                        LoadDuration = sw.Elapsed
-                    };
+                    return RecordFailure(
+                        endpoint,
+                        stopwatch,
+                        failureStage: "size",
+                        httpStatus: (int)response.StatusCode,
+                        error: $"Document size exceeds {maxSize} bytes");
                 }
-                await memoryStream.WriteAsync(buffer.AsMemory(0, bytesRead), cts.Token);
+
+                await memory.WriteAsync(buffer.AsMemory(0, read), cts.Token);
             }
 
-            memoryStream.Position = 0;
+            memory.Position = 0;
 
-            ReadResult readResult = await OpenApiDocument.LoadAsync(memoryStream, cancellationToken: cts.Token);
-            OpenApiDocument? document = readResult.Document;
-
-            sw.Stop();
-
-            if (document != null)
+            ReadResult readResult = await OpenApiDocument.LoadAsync(memory, cancellationToken: cts.Token);
+            if (readResult.Document is null)
             {
-                SwaggerTelemetry.LoadSuccessCounter.Add(1,
-                    new KeyValuePair<string, object?>("cluster.id", endpoint.ClusterId));
-                SwaggerTelemetry.LoadDuration.Record(sw.ElapsedMilliseconds,
-                    new KeyValuePair<string, object?>("cluster.id", endpoint.ClusterId));
-
-                _logger.LogInformation(
-                    "Loaded Swagger document for {ClusterId} from {Url} in {Duration}ms",
-                    endpoint.ClusterId, endpoint.SwaggerUrl, sw.ElapsedMilliseconds);
-
-                return new SwaggerLoadResult
-                {
-                    Endpoint = endpoint,
-                    Document = document,
-                    LoadDuration = sw.Elapsed
-                };
+                return RecordFailure(
+                    endpoint,
+                    stopwatch,
+                    failureStage: "parse",
+                    httpStatus: (int)response.StatusCode,
+                    error: "Failed to parse OpenAPI document");
             }
-            else
+
+            stopwatch.Stop();
+
+            SwaggerTelemetry.LoadSuccessCounter.Add(1,
+                new KeyValuePair<string, object?>("cluster.id", endpoint.ClusterId),
+                new KeyValuePair<string, object?>("document.name", endpoint.DocumentName));
+            SwaggerTelemetry.LoadDuration.Record(stopwatch.Elapsed.TotalMilliseconds,
+                new KeyValuePair<string, object?>("cluster.id", endpoint.ClusterId),
+                new KeyValuePair<string, object?>("document.name", endpoint.DocumentName));
+
+            _logger.LogInformation(
+                "Loaded Swagger document for {ClusterId} ({DocumentName}) from {Url} in {Duration}ms",
+                endpoint.ClusterId,
+                endpoint.DocumentName,
+                endpoint.SwaggerUrl,
+                stopwatch.Elapsed.TotalMilliseconds);
+
+            return new SwaggerLoadResult
             {
-                string errorMessage = "Failed to parse OpenAPI document";
-                _logger.LogWarning(
-                    "Failed to parse Swagger document for {ClusterId} from {Url}",
-                    endpoint.ClusterId, endpoint.SwaggerUrl);
-
-                SwaggerTelemetry.LoadFailureCounter.Add(1,
-                    new KeyValuePair<string, object?>("cluster.id", endpoint.ClusterId),
-                    new KeyValuePair<string, object?>("error.type", "parse_error"));
-
-                return new SwaggerLoadResult
-                {
-                    Endpoint = endpoint,
-                    ErrorMessage = errorMessage,
-                    LoadDuration = sw.Elapsed
-                };
-            }
+                Endpoint = endpoint,
+                Document = readResult.Document,
+                HttpStatusCode = (int)response.StatusCode,
+                LoadDuration = stopwatch.Elapsed,
+            };
         }
         catch (HttpRequestException ex)
         {
-            sw.Stop();
-            _logger.LogWarning(ex,
-                "HTTP error loading Swagger for {ClusterId} from {Url}",
-                endpoint.ClusterId, endpoint.SwaggerUrl);
-
-            SwaggerTelemetry.LoadFailureCounter.Add(1,
-                new KeyValuePair<string, object?>("cluster.id", endpoint.ClusterId),
-                new KeyValuePair<string, object?>("error.type", "http_error"));
-
-            return new SwaggerLoadResult
-            {
-                Endpoint = endpoint,
-                ErrorMessage = ex.Message,
-                LoadDuration = sw.Elapsed
-            };
+            return RecordFailure(endpoint, stopwatch, failureStage: "http", httpStatus: null, error: ex.Message, ex);
         }
-        catch (Exception ex) when (
-            ex is OperationCanceledException && !cancellationToken.IsCancellationRequested ||
-            ex is TimeoutRejectedException)
+        catch (Exception ex) when (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested)
         {
-            sw.Stop();
-            _logger.LogWarning(
-                "Timeout loading Swagger for {ClusterId} from {Url}",
-                endpoint.ClusterId, endpoint.SwaggerUrl);
-
-            SwaggerTelemetry.LoadFailureCounter.Add(1,
-                new KeyValuePair<string, object?>("cluster.id", endpoint.ClusterId),
-                new KeyValuePair<string, object?>("error.type", "timeout"));
-
-            return new SwaggerLoadResult
-            {
-                Endpoint = endpoint,
-                ErrorMessage = "Request timed out",
-                LoadDuration = sw.Elapsed
-            };
+            return RecordFailure(endpoint, stopwatch, failureStage: "timeout", httpStatus: null, error: "Request timed out");
+        }
+        catch (TimeoutRejectedException)
+        {
+            return RecordFailure(endpoint, stopwatch, failureStage: "timeout", httpStatus: null, error: "Request timed out");
         }
         catch (Exception ex)
         {
-            sw.Stop();
-            _logger.LogError(ex,
-                "Unexpected error loading Swagger for {ClusterId} from {Url}",
-                endpoint.ClusterId, endpoint.SwaggerUrl);
-
-            SwaggerTelemetry.LoadFailureCounter.Add(1,
-                new KeyValuePair<string, object?>("cluster.id", endpoint.ClusterId),
-                new KeyValuePair<string, object?>("error.type", "unknown"));
-
-            return new SwaggerLoadResult
-            {
-                Endpoint = endpoint,
-                ErrorMessage = ex.Message,
-                LoadDuration = sw.Elapsed
-            };
+            return RecordFailure(endpoint, stopwatch, failureStage: "unknown", httpStatus: null, error: ex.Message, ex);
         }
+    }
+
+    private async Task TryAttachAccessTokenAsync(
+        HttpRequestMessage request,
+        SwaggerEndpoint endpoint,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(endpoint.AccessTokenClient) || _tokenManager is null)
+        {
+            return;
+        }
+
+        try
+        {
+            ClientCredentialsToken token = await _tokenManager
+                .GetAccessTokenAsync(
+                    ClientCredentialsClientName.Parse(endpoint.AccessTokenClient),
+                    ct: cancellationToken)
+                .GetToken();
+
+            if (!string.IsNullOrEmpty(token.AccessToken))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to acquire access token for cluster {ClusterId} via client {ClientName}",
+                endpoint.ClusterId,
+                endpoint.AccessTokenClient);
+        }
+    }
+
+    private SwaggerLoadResult RecordFailure(
+        SwaggerEndpoint endpoint,
+        Stopwatch stopwatch,
+        string failureStage,
+        int? httpStatus,
+        string error,
+        Exception? exception = null)
+    {
+        stopwatch.Stop();
+
+        if (exception is null)
+        {
+            _logger.LogWarning(
+                "Failed to load Swagger document for {ClusterId} ({DocumentName}) from {Url}: {Stage} {Error}",
+                endpoint.ClusterId,
+                endpoint.DocumentName,
+                endpoint.SwaggerUrl,
+                failureStage,
+                error);
+        }
+        else
+        {
+            _logger.LogWarning(
+                exception,
+                "Failed to load Swagger document for {ClusterId} ({DocumentName}) from {Url}: {Stage}",
+                endpoint.ClusterId,
+                endpoint.DocumentName,
+                endpoint.SwaggerUrl,
+                failureStage);
+        }
+
+        SwaggerTelemetry.LoadFailureCounter.Add(1,
+            new KeyValuePair<string, object?>("cluster.id", endpoint.ClusterId),
+            new KeyValuePair<string, object?>("document.name", endpoint.DocumentName),
+            new KeyValuePair<string, object?>("failure.stage", failureStage),
+            new KeyValuePair<string, object?>("http.status_code", httpStatus));
+
+        return new SwaggerLoadResult
+        {
+            Endpoint = endpoint,
+            HttpStatusCode = httpStatus,
+            FailureStage = failureStage,
+            ErrorMessage = error,
+            LoadDuration = stopwatch.Elapsed,
+        };
     }
 }

@@ -1,21 +1,20 @@
+using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 using Polly;
-using System.Net;
 using Yuzhu.Yarp.Swagger.Configuration;
 
 namespace Yuzhu.Yarp.Swagger.Resilience;
 
 /// <summary>
-/// Swagger HTTP 客户端弹性扩展方法
+/// Adds the resilience pipeline used by the document loader: retry on transient HTTP
+/// failure, per-attempt timeout, and a circuit breaker. Values are read from the current
+/// <see cref="SwaggerAggregationOptions"/> at request time.
 /// </summary>
 public static class SwaggerHttpClientExtensions
 {
-    /// <summary>
-    /// 添加 Swagger 弹性处理管道（重试 + 每次尝试超时 + 熔断）。
-    /// 配置在请求时按当前 <see cref="SwaggerAggregationOptions"/> 解析。
-    /// </summary>
+    /// <summary>Add the Swagger loader resilience handler to the given HTTP client builder.</summary>
     public static IHttpClientBuilder AddSwaggerResilienceHandler(this IHttpClientBuilder builder)
     {
         _ = builder.AddResilienceHandler("swagger-pipeline", static (configure, context) =>
@@ -33,7 +32,7 @@ public static class SwaggerHttpClientExtensions
                     UseJitter = true,
                     ShouldHandle = static args => ValueTask.FromResult(
                         args.Outcome.Exception is HttpRequestException or TimeoutException ||
-                        args.Outcome.Result?.StatusCode >= HttpStatusCode.InternalServerError)
+                        args.Outcome.Result?.StatusCode >= HttpStatusCode.InternalServerError),
                 })
                 .AddTimeout(options.LoadTimeout)
                 .AddCircuitBreaker(new HttpCircuitBreakerStrategyOptions
@@ -43,7 +42,7 @@ public static class SwaggerHttpClientExtensions
                     SamplingDuration = TimeSpan.FromSeconds(30),
                     BreakDuration = TimeSpan.FromSeconds(30),
                     ShouldHandle = static args => ValueTask.FromResult(
-                        args.Outcome.Exception is HttpRequestException or TimeoutException)
+                        args.Outcome.Exception is HttpRequestException or TimeoutException),
                 });
         });
 

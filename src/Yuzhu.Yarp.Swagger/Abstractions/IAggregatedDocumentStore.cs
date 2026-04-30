@@ -3,22 +3,21 @@ using Microsoft.OpenApi;
 namespace Yuzhu.Yarp.Swagger.Abstractions;
 
 /// <summary>
-/// Stores aggregated OpenAPI documents.
+/// Stores aggregated OpenAPI documents keyed by document name.
 /// </summary>
 public interface IAggregatedDocumentStore
 {
-    /// <summary>
-    /// Gets a cached aggregated document asynchronously when available.
-    /// </summary>
-    ValueTask<OpenApiDocument?> GetAsync(string documentName, CancellationToken cancellationToken = default);
+    /// <summary>Returns a cached document, or <c>null</c> when not present.</summary>
+    ValueTask<OpenApiDocument?> GetAsync(
+        string documentName,
+        CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Stores an aggregated document.
-    /// </summary>
-    ValueTask SetAsync(string documentName, OpenApiDocument document, CancellationToken cancellationToken = default);
+    /// <summary>Stores the aggregated document, overwriting any previous value.</summary>
+    ValueTask SetAsync(
+        string documentName,
+        OpenApiDocument document,
+        CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Gets all cached document names.
-    /// </summary>
+    /// <summary>Returns all currently cached document names.</summary>
     IReadOnlyList<string> GetDocumentNames();
 }

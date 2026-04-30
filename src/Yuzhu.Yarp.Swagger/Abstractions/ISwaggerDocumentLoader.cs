@@ -3,45 +3,39 @@ using Microsoft.OpenApi;
 namespace Yuzhu.Yarp.Swagger.Abstractions;
 
 /// <summary>
-/// 负责从远程服务加载 Swagger 文档
+/// Loads a single Swagger document from its <see cref="SwaggerEndpoint"/>.
 /// </summary>
 public interface ISwaggerDocumentLoader
 {
-    /// <summary>
-    /// 异步加载 Swagger 文档
-    /// </summary>
+    /// <summary>Loads the document for the endpoint.</summary>
     Task<SwaggerLoadResult> LoadAsync(
         SwaggerEndpoint endpoint,
         CancellationToken cancellationToken = default);
 }
 
 /// <summary>
-/// Swagger 文档加载结果
+/// Outcome of a document load attempt.
 /// </summary>
 public sealed record SwaggerLoadResult
 {
-    /// <summary>
-    /// 端点信息
-    /// </summary>
+    /// <summary>The endpoint that was loaded.</summary>
     public required SwaggerEndpoint Endpoint { get; init; }
 
-    /// <summary>
-    /// 加载的文档（成功时非空）
-    /// </summary>
+    /// <summary>Loaded document on success; <c>null</c> on failure.</summary>
     public OpenApiDocument? Document { get; init; }
 
-    /// <summary>
-    /// 是否加载成功
-    /// </summary>
+    /// <summary><c>true</c> when <see cref="Document"/> is non-null.</summary>
     public bool IsSuccess => Document is not null;
 
-    /// <summary>
-    /// 错误信息
-    /// </summary>
+    /// <summary>HTTP status code when the load reached the network, or <c>null</c>.</summary>
+    public int? HttpStatusCode { get; init; }
+
+    /// <summary>Stage where the load failed (<c>http</c>, <c>parse</c>, <c>size</c>, <c>timeout</c>, <c>token</c>).</summary>
+    public string? FailureStage { get; init; }
+
+    /// <summary>Free-form error description.</summary>
     public string? ErrorMessage { get; init; }
 
-    /// <summary>
-    /// 加载耗时
-    /// </summary>
+    /// <summary>Wall-clock duration of the load attempt.</summary>
     public TimeSpan LoadDuration { get; init; }
 }

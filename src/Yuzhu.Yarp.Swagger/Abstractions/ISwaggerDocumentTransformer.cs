@@ -3,18 +3,14 @@ using Microsoft.OpenApi;
 namespace Yuzhu.Yarp.Swagger.Abstractions;
 
 /// <summary>
-/// 文档转换管道中的单个转换器
+/// A single stage in the per-document transformation pipeline.
 /// </summary>
 public interface ISwaggerDocumentTransformer
 {
-    /// <summary>
-    /// 执行顺序（越小越先执行）
-    /// </summary>
+    /// <summary>Lower order runs first.</summary>
     int Order => 0;
 
-    /// <summary>
-    /// 转换文档
-    /// </summary>
+    /// <summary>Transform <paramref name="document"/> in-place or return a replacement.</summary>
     ValueTask<OpenApiDocument> TransformAsync(
         OpenApiDocument document,
         TransformContext context,
@@ -22,22 +18,13 @@ public interface ISwaggerDocumentTransformer
 }
 
 /// <summary>
-/// 转换上下文
+/// Context passed to a <see cref="ISwaggerDocumentTransformer"/>.
 /// </summary>
 public sealed record TransformContext
 {
-    /// <summary>
-    /// Cluster ID
-    /// </summary>
+    /// <summary>YARP cluster id for the source document.</summary>
     public required string ClusterId { get; init; }
 
-    /// <summary>
-    /// 端点信息
-    /// </summary>
+    /// <summary>The discovered endpoint.</summary>
     public required SwaggerEndpoint Endpoint { get; init; }
-
-    /// <summary>
-    /// 转换参数
-    /// </summary>
-    public IReadOnlyDictionary<string, string>? TransformValues { get; init; }
 }

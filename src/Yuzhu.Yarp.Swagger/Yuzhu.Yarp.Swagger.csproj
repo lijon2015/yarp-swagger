@@ -6,9 +6,9 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
         <PackageId>Yuzhu.Yarp.Swagger</PackageId>
-        <Version>2.0.1</Version>
+        <Version>3.0.0</Version>
         <Authors>Yuzhu</Authors>
-        <Description>Swagger aggregation for YARP (Yet Another Reverse Proxy). Automatically discovers and aggregates Swagger documents from backend services using YARP metadata.</Description>
+        <Description>Swagger / OpenAPI aggregation for YARP. Discovers backend Swagger endpoints from YARP runtime state and configuration through pluggable sources and address resolvers, aggregates documents with explicit 200/404/503 semantics, and refreshes on YARP config changes.</Description>
         <PackageProjectUrl>https://github.com/lijon2015/yarp-swagger</PackageProjectUrl>
         <PackageTags>yarp;swagger;openapi;reverse-proxy;api-gateway</PackageTags>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -16,13 +16,25 @@
         <RepositoryUrl>https://github.com/lijon2015/yarp-swagger</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageReleaseNotes>
-v2.0.1 — Code-style cleanup. No API or behavior changes.
- - Applied .editorconfig IDE rules across src/tests/sample (explicit types,
-   expression bodies, primary constructors, collection expressions, discard
-   unused expression values).
- - Converted two blocking-task calls in SwaggerDocumentCoordinatorTests to
-   async/await (xUnit1031).
-See CHANGELOG.md for details.
+v3.0.0 - Major rewrite. No backward compatibility with v2.x.
+ - Replaced ISwaggerEndpointProvider with a five-interface discovery pipeline:
+   ISwaggerEndpointDiscoveryService, ISwaggerEndpointSource,
+   ISwaggerEndpointAddressResolver, ISwaggerMetadataAccessor, ISwaggerRefreshTrigger.
+ - SwaggerEndpointDiscoveryResult now exposes structured per-cluster diagnostics so
+   skipped/failed clusters can be explained in logs.
+ - Removed the fake "/swagger/v1/swagger.json" UI placeholder. UI urls now reflect only
+   real discovered documents; configurable EmptyBehavior controls what happens when
+   discovery returns zero documents.
+ - New UseSwaggerAggregationDocuments() middleware owns 200/404/503 semantics. Unknown
+   documents return 404 with a known-document list; known-but-unavailable returns
+   503 (configurable).
+ - Refresh is event-driven: options change, periodic timer, and YARP config change tokens.
+   Project-specific triggers can be added via the builder.
+ - SwaggerAggregationBuilder grew AddSource, AddAddressResolver, InsertAddressResolver,
+   AddRefreshTrigger, and ConfigureDocumentEndpoint hooks.
+ - Telemetry tags and metric names aligned with the long-term plan
+   (cluster.id, document.name, destination.address, http.status_code, failure.stage).
+See CHANGELOG.md for migration notes.
         </PackageReleaseNotes>
     </PropertyGroup>
 
@@ -34,6 +46,10 @@ See CHANGELOG.md for details.
 
     <ItemGroup>
         <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
     </ItemGroup>
 
     <ItemGroup>

@@ -3,46 +3,28 @@ using Microsoft.OpenApi;
 namespace Yuzhu.Yarp.Swagger.Abstractions;
 
 /// <summary>
-/// Swagger 文档聚合服务的主入口
+/// Loads, transforms, and merges all endpoints in <see cref="AggregationContext"/> into one
+/// OpenAPI document.
 /// </summary>
 public interface ISwaggerAggregator
 {
-    /// <summary>
-    /// 聚合多个端点的 Swagger 文档
-    /// </summary>
+    /// <summary>Aggregate all endpoints in the context.</summary>
     Task<OpenApiDocument> AggregateAsync(
         AggregationContext context,
         CancellationToken cancellationToken = default);
 }
 
 /// <summary>
-/// 聚合上下文
+/// Inputs to a single aggregation pass.
 /// </summary>
 public sealed record AggregationContext
 {
-    /// <summary>
-    /// 待聚合的端点列表
-    /// </summary>
+    /// <summary>Logical document name being aggregated.</summary>
+    public required string DocumentName { get; init; }
+
+    /// <summary>Endpoints contributing to this document.</summary>
     public required IReadOnlyList<SwaggerEndpoint> Endpoints { get; init; }
 
-    /// <summary>
-    /// 合并选项
-    /// </summary>
-    public MergeOptions MergeOptions { get; init; } = new();
-
-    /// <summary>
-    /// 文档名称
-    /// </summary>
-    public string? DocumentName { get; init; }
-}
-
-/// <summary>
-/// 文档合并选项
-/// </summary>
-public sealed record MergeOptions
-{
-    /// <summary>
-    /// 是否在文档中包含失败服务的警告
-    /// </summary>
-    public bool IncludeFailedServicesWarning { get; init; } = true;
+    /// <summary>Merge options applied at the final step.</summary>
+    public SwaggerMergeOptions MergeOptions { get; init; } = new();
 }

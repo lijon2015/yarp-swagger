@@ -11,7 +11,7 @@ public sealed class PathFilterTransformerTests
     [Fact]
     public async Task TransformAsync_WithoutFilter_ReturnsDocumentUnchanged()
     {
-        PathFilterTransformer transformer = new PathFilterTransformer(NullLogger<PathFilterTransformer>.Instance);
+        PathFilterTransformer transformer = new(NullLogger<PathFilterTransformer>.Instance);
         OpenApiDocument document = CreateDocumentWithPaths("/api/users", "/internal/health");
 
         OpenApiDocument result = await transformer.TransformAsync(
@@ -25,7 +25,7 @@ public sealed class PathFilterTransformerTests
     [Fact]
     public async Task TransformAsync_KeepsMatchingPathsAndDropsOthers()
     {
-        PathFilterTransformer transformer = new PathFilterTransformer(NullLogger<PathFilterTransformer>.Instance);
+        PathFilterTransformer transformer = new(NullLogger<PathFilterTransformer>.Instance);
         OpenApiDocument document = CreateDocumentWithPaths("/api/users", "/api/orders", "/internal/health");
 
         OpenApiDocument result = await transformer.TransformAsync(
@@ -38,35 +38,10 @@ public sealed class PathFilterTransformerTests
         Assert.DoesNotContain("/internal/health", result.Paths.Keys);
     }
 
-    /// <summary>
-    /// Migration proof for the v2.0.0 removal of <c>Swagger:OnlyPublishedPaths</c>: the
-    /// documented replacement is to constrain surfaced paths with a regex via
-    /// <c>Swagger:PathFilter</c>. This test pins that the replacement path actually works.
-    /// </summary>
-    [Fact]
-    public async Task TransformAsync_PublicPathsRegex_IsValidMigrationFromOnlyPublishedPaths()
-    {
-        PathFilterTransformer transformer = new PathFilterTransformer(NullLogger<PathFilterTransformer>.Instance);
-        OpenApiDocument document = CreateDocumentWithPaths(
-            "/api/public/orders",
-            "/api/public/invoices",
-            "/api/internal/debug",
-            "/api/admin/users");
-
-        OpenApiDocument result = await transformer.TransformAsync(
-            document,
-            BuildContext(pathFilter: "^/api/public/.*"));
-
-        Assert.Equal(2, result.Paths.Count);
-        Assert.All(
-            result.Paths.Keys,
-            path => Assert.StartsWith("/api/public/", path));
-    }
-
     [Fact]
     public async Task TransformAsync_InvalidRegex_KeepsDocumentUnchanged()
     {
-        PathFilterTransformer transformer = new PathFilterTransformer(NullLogger<PathFilterTransformer>.Instance);
+        PathFilterTransformer transformer = new(NullLogger<PathFilterTransformer>.Instance);
         OpenApiDocument document = CreateDocumentWithPaths("/api/users");
 
         OpenApiDocument result = await transformer.TransformAsync(
@@ -80,13 +55,13 @@ public sealed class PathFilterTransformerTests
     [Fact]
     public async Task TransformAsync_PatternExceedingMaxLength_KeepsDocumentUnchanged()
     {
-        PathFilterTransformer transformer = new PathFilterTransformer(NullLogger<PathFilterTransformer>.Instance);
+        PathFilterTransformer transformer = new(NullLogger<PathFilterTransformer>.Instance);
         OpenApiDocument document = CreateDocumentWithPaths("/api/users");
-        string oversizedPattern = new string('a', SwaggerConstants.MaxPathFilterLength + 1);
+        string oversized = new('a', SwaggerConstants.MaxPathFilterLength + 1);
 
         OpenApiDocument result = await transformer.TransformAsync(
             document,
-            BuildContext(pathFilter: oversizedPattern));
+            BuildContext(pathFilter: oversized));
 
         Assert.Same(document, result);
         _ = Assert.Single(result.Paths);
@@ -95,7 +70,7 @@ public sealed class PathFilterTransformerTests
     [Fact]
     public async Task TransformAsync_CompiledRegexIsCachedBetweenCalls()
     {
-        PathFilterTransformer transformer = new PathFilterTransformer(NullLogger<PathFilterTransformer>.Instance);
+        PathFilterTransformer transformer = new(NullLogger<PathFilterTransformer>.Instance);
         TransformContext context = BuildContext(pathFilter: "^/api/.*");
 
         OpenApiDocument first = await transformer.TransformAsync(
@@ -114,7 +89,7 @@ public sealed class PathFilterTransformerTests
 
     private static OpenApiDocument CreateDocumentWithPaths(params string[] paths)
     {
-        OpenApiDocument document = new OpenApiDocument
+        OpenApiDocument document = new()
         {
             Info = new OpenApiInfo { Title = "test", Version = "v1" },
             Paths = [],
@@ -128,18 +103,10 @@ public sealed class PathFilterTransformerTests
         return document;
     }
 
-    private static TransformContext BuildContext(string? pathFilter)
-    {
-        return new TransformContext
+    private static TransformContext BuildContext(string? pathFilter) =>
+        new()
         {
             ClusterId = "test-cluster",
-            Endpoint = new SwaggerEndpoint
-            {
-                ClusterId = "test-cluster",
-                BaseAddress = new Uri("https://example.test"),
-                SwaggerPath = "/swagger/v1/swagger.json",
-                PathFilter = pathFilter,
-            },
+            Endpoint = TestDoubles.CreateEndpoint("test-cluster", pathFilter: pathFilter),
         };
-    }
 }
